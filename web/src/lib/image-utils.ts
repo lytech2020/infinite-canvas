@@ -1,4 +1,6 @@
 import type { ReferenceImage } from "@/types/image";
+import { errorText } from "@/i18n/error-text";
+import i18n from "@/i18n";
 
 export function formatBytes(bytes: number) {
     if (!Number.isFinite(bytes) || bytes <= 0) {
@@ -18,7 +20,11 @@ export function formatDuration(ms: number) {
     const value = Math.max(0, Math.floor(ms / 1000));
     const minutes = Math.floor(value / 60);
     const seconds = value % 60;
-    return minutes ? `${minutes}分${String(seconds).padStart(2, "0")}秒` : `${seconds}秒`;
+    return minutes ? i18n.t("duration.minutesSeconds", { minutes, seconds: String(seconds).padStart(2, "0") }) : i18n.t("duration.seconds", { seconds });
+}
+
+export function formatDateTime(value: number | string | Date) {
+    return new Intl.DateTimeFormat(i18n.resolvedLanguage || i18n.language, { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(new Date(value));
 }
 
 export function getDataUrlByteSize(dataUrl: string) {
@@ -34,7 +40,7 @@ export function readFileAsDataUrl(file: File) {
     return new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve(String(reader.result || ""));
-        reader.onerror = () => reject(new Error("读取图片失败"));
+        reader.onerror = () => reject(new Error(errorText("imageReadFailed")));
         reader.readAsDataURL(file);
     });
 }

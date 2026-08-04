@@ -2,7 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Segmented, Tooltip } from "antd";
 import copyToClipboard from "copy-to-clipboard";
 import { CheckCircle2, ChevronDown, CircleAlert, CircleDot, Copy, Trash2, TriangleAlert } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
+import i18n from "@/i18n";
+import { localizeAgentText } from "@/i18n/agent-text";
 import { canvasThemes } from "@/lib/canvas-theme";
 import type { AgentEventLog } from "@/stores/use-agent-store";
 import { formatLogJson, formatLogText, type AgentLogContext } from "./agent-event-formatters";
@@ -27,6 +30,7 @@ export function AgentLogView({
     onCopied: (text: string) => void;
     onCopyBlocked: (text: string) => void;
 }) {
+    const { t } = useTranslation("agent");
     const [mode, setMode] = useState<"text" | "json">("text");
     const [filter, setFilter] = useState<LogFilter>("all");
     const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -35,7 +39,7 @@ export function AgentLogView({
     const [showScrollToBottom, setShowScrollToBottom] = useState(false);
     const [newLogCount, setNewLogCount] = useState(0);
     const content = mode === "text" ? formatLogText(logs, context) : formatLogJson(logs, context);
-    const displayLogs = useMemo(() => prepareLogs(logs), [logs]);
+    const displayLogs = useMemo(() => prepareLogs(logs), [logs, i18n.language]);
     const counts = useMemo(
         () => ({
             all: displayLogs.reduce((sum, item) => sum + item.count, 0),
@@ -93,28 +97,28 @@ export function AgentLogView({
         });
         return () => cancelAnimationFrame(frame);
     }, [mode, scrollToBottom, updateScrollState, visibleLogCount]);
-    const copy = async (value = content, tip = "日志已复制") => {
+    const copy = async (value = content, tip = t("log.copied")) => {
         if (await copyToClipboard(value)) {
             onCopied(tip);
             return;
         }
         textareaRef.current?.focus();
         textareaRef.current?.select();
-        onCopyBlocked(mode === "json" ? "已选中日志，请手动复制" : "复制失败，请切换到原始 JSON 后手动复制");
+        onCopyBlocked(t(mode === "json" ? "log.selectManual" : "log.copyFailedManual"));
     };
-    const connectionLabel = context.connected ? "在线" : context.enabled ? "连接中" : "未启用";
+    const connectionLabel = t(context.connected ? "log.online" : context.enabled ? "log.connecting" : "log.disabled");
     return (
         <div className="min-h-0 flex-1 overflow-hidden px-4 py-3">
             <div className="flex h-full min-h-0 flex-col gap-3">
                 <div className="flex items-center justify-between gap-3">
-                    <div className="text-base font-semibold leading-6">运行日志</div>
+                    <div className="text-base font-semibold leading-6">{t("log.title")}</div>
                     <Segmented
                         size="small"
                         value={mode}
                         onChange={(value) => setMode(value as "text" | "json")}
                         options={[
-                            { label: "排查日志", value: "text" },
-                            { label: "原始 JSON", value: "json" },
+                            { label: t("log.diagnostic"), value: "text" },
+                            { label: t("log.rawJson"), value: "json" },
                         ]}
                     />
                 </div>
@@ -134,8 +138,8 @@ export function AgentLogView({
                             </div>
                         </div>
                         <div className="shrink-0 text-right text-[11px] leading-4" style={{ color: theme.node.muted }}>
-                            <div>{context.messages} 条消息</div>
-                            <div>{context.pendingTool ? `工具：${context.pendingTool}` : "无待处理工具"}</div>
+                            <div>{t("log.messages", { count: context.messages })}</div>
+                            <div>{context.pendingTool ? t("log.tool", { name: context.pendingTool }) : t("log.noTool")}</div>
                         </div>
                     </div>
                 </div>
@@ -148,30 +152,30 @@ export function AgentLogView({
                                 value={filter}
                                 onChange={(value) => setFilter(value as LogFilter)}
                                 options={[
-                                    { label: `全部 ${counts.all}`, value: "all" },
-                                    { label: `错误 ${counts.error}`, value: "error" },
-                                    { label: `警告 ${counts.warning}`, value: "warning" },
-                                    { label: `信息 ${counts.info}`, value: "info" },
+                                    { label: t("log.all", { count: counts.all }), value: "all" },
+                                    { label: t("log.errors", { count: counts.error }), value: "error" },
+                                    { label: t("log.warnings", { count: counts.warning }), value: "warning" },
+                                    { label: t("log.info", { count: counts.info }), value: "info" },
                                 ]}
                             />
                             <LogActions logs={logs} lastError={lastError} onClear={onClear} onCopy={(value, tip) => void copy(value, tip)} context={context} />
                         </div>
                         <div className="relative min-h-0 flex-1">
-                            <div ref={listRef} tabIndex={0} aria-label="排查日志列表" className="thin-scrollbar h-full overflow-y-auto border-y focus-visible:outline-none" style={{ borderColor: theme.node.stroke }} onScroll={updateScrollState}>
+                            <div ref={listRef} tabIndex={0} aria-label={t("log.listLabel")} className="thin-scrollbar h-full overflow-y-auto border-y focus-visible:outline-none" style={{ borderColor: theme.node.stroke }} onScroll={updateScrollState}>
                                 {visibleLogs.map((item, index) => (
                                     <LogRow key={item.id} item={item} theme={theme} onToggle={index === visibleLogs.length - 1 ? handleLastLogToggle : undefined} />
                                 ))}
                                 {!visibleLogs.length ? (
                                     <div className="px-3 py-10 text-center text-sm" style={{ color: theme.node.muted }}>
-                                        {logs.length ? "当前筛选下没有日志" : "暂无事件日志"}
+                                        {t(logs.length ? "log.noFiltered" : "log.noEvents")}
                                     </div>
                                 ) : null}
                             </div>
                             {showScrollToBottom ? (
                                 <AgentScrollToBottom
                                     theme={theme}
-                                    title={newLogCount ? `${newLogCount} 条新日志` : "查看最新日志"}
-                                    ariaLabel={newLogCount ? `${newLogCount} 条新日志，查看最新日志` : "查看最新日志"}
+                                    title={newLogCount ? t("log.newLogs", { count: newLogCount }) : t("log.latest")}
+                                    ariaLabel={newLogCount ? t("log.newLogsLatest", { count: newLogCount }) : t("log.latest")}
                                     className="!bottom-52"
                                     onClick={() => scrollToBottom()}
                                 />
@@ -182,7 +186,7 @@ export function AgentLogView({
                     <>
                         <div className="flex items-center justify-between gap-2">
                             <span className="text-xs" style={{ color: theme.node.muted }}>
-                                完整诊断数据 · {logs.length} 条
+                                {t("log.fullData", { count: logs.length })}
                             </span>
                             <LogActions logs={logs} lastError={lastError} onClear={onClear} onCopy={(value, tip) => void copy(value, tip)} context={context} />
                         </div>
@@ -202,22 +206,24 @@ export function AgentLogView({
 }
 
 function LogActions({ logs, lastError, context, onClear, onCopy }: { logs: AgentEventLog[]; lastError?: AgentEventLog; context: AgentLogContext; onClear: () => void; onCopy: (value?: string, tip?: string) => void }) {
+    const { t } = useTranslation("agent");
     return (
         <div className="flex shrink-0 items-center gap-0.5">
-            <Tooltip title="复制全部日志">
-                <Button type="text" size="small" shape="circle" aria-label="复制全部日志" icon={<Copy className="size-3.5" />} onClick={() => onCopy()} />
+            <Tooltip title={t("log.copyAll")}>
+                <Button type="text" size="small" shape="circle" aria-label={t("log.copyAll")} icon={<Copy className="size-3.5" />} onClick={() => onCopy()} />
             </Tooltip>
-            <Tooltip title="复制最近错误">
-                <Button type="text" size="small" shape="circle" aria-label="复制最近错误" disabled={!lastError} icon={<CircleAlert className="size-3.5" />} onClick={() => lastError && onCopy(formatLogText([lastError], context), "最近错误已复制")} />
+            <Tooltip title={t("log.copyLastError")}>
+                <Button type="text" size="small" shape="circle" aria-label={t("log.copyLastError")} disabled={!lastError} icon={<CircleAlert className="size-3.5" />} onClick={() => lastError && onCopy(formatLogText([lastError], context), t("log.lastErrorCopied"))} />
             </Tooltip>
-            <Tooltip title="清空日志">
-                <Button danger type="text" size="small" shape="circle" aria-label="清空日志" disabled={!logs.length} icon={<Trash2 className="size-3.5" />} onClick={onClear} />
+            <Tooltip title={t("log.clear")}>
+                <Button danger type="text" size="small" shape="circle" aria-label={t("log.clear")} disabled={!logs.length} icon={<Trash2 className="size-3.5" />} onClick={onClear} />
             </Tooltip>
         </div>
     );
 }
 
 function LogRow({ item, theme, onToggle }: { item: DisplayLog; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; onToggle?: (open: boolean) => void }) {
+    const { t } = useTranslation("agent");
     const tone = item.level === "error" ? "text-red-600 dark:text-red-400" : item.level === "warning" ? "text-amber-600 dark:text-amber-400" : item.success ? "text-emerald-600 dark:text-emerald-400" : "";
     const Icon = item.level === "error" ? CircleAlert : item.level === "warning" ? TriangleAlert : item.success ? CheckCircle2 : CircleDot;
     return (
@@ -233,7 +239,7 @@ function LogRow({ item, theme, onToggle }: { item: DisplayLog; theme: (typeof ca
                             <span className="truncate text-sm font-medium leading-5">{item.title}</span>
                             {item.count > 1 ? (
                                 <span className="shrink-0 text-[10px] leading-4" style={{ color: theme.node.muted }}>
-                                    重复 {item.count} 次
+                                    {t("log.repeated", { count: item.count })}
                                 </span>
                             ) : null}
                         </div>
@@ -248,7 +254,7 @@ function LogRow({ item, theme, onToggle }: { item: DisplayLog; theme: (typeof ca
             </summary>
             <div className="pb-3 pl-[34px] pr-2">
                 <div className="mb-1 text-[10px] font-medium" style={{ color: theme.node.faint }}>
-                    详细信息
+                    {t("log.details")}
                 </div>
                 <pre className="thin-scrollbar max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-md border p-2.5 font-mono text-[11px] leading-5" style={{ borderColor: theme.node.stroke, background: theme.node.panel, color: theme.node.text }}>
                     {item.detail}
@@ -275,9 +281,9 @@ function prepareLogs(logs: AgentEventLog[]) {
 function expandLog(item: AgentEventLog): DisplayLog[] {
     const entries = parseJsonEntries(item.raw ?? item.text);
     return (entries.length ? entries : [undefined]).map((entry, index) => {
-        const displayText = compactLogText(entry === undefined ? item.text : logSummary(entry)) || item.title;
+        const displayText = localizeAgentText(compactLogText(entry === undefined ? item.text : logSummary(entry)) || item.title);
         const level = logLevel(item, entry);
-        const title = entry === undefined ? item.title : logTitle(item.title, entry);
+        const title = localizeAgentText(entry === undefined ? item.title : logTitle(item.title, entry));
         return {
             ...item,
             id: entries.length > 1 ? `${item.id}-${index}` : item.id,
@@ -323,13 +329,13 @@ function declaredLogLevel(value: unknown): DisplayLog["level"] | "" {
 }
 
 function logTitle(fallback: string, value: unknown) {
-    if (fallback !== "日志" || !value || typeof value !== "object" || Array.isArray(value)) return fallback;
+    if (fallback !== "日志" || !value || typeof value !== "object" || Array.isArray(value)) return fallback === "日志" ? i18n.t("log.log", { ns: "agent" }) : fallback;
     const target = String((value as Record<string, unknown>).target || "").toLowerCase();
-    if (target.includes("skill")) return "技能加载";
-    if (target.includes("plugin")) return "插件";
+    if (target.includes("skill")) return i18n.t("log.skills", { ns: "agent" });
+    if (target.includes("plugin")) return i18n.t("log.plugins", { ns: "agent" });
     if (target.includes("mcp") || target.includes("rmcp")) return "MCP";
-    if (target.includes("shell")) return "终端";
-    if (target.includes("state_db")) return "会话存储";
+    if (target.includes("shell")) return i18n.t("log.terminal", { ns: "agent" });
+    if (target.includes("state_db")) return i18n.t("log.sessions", { ns: "agent" });
     return "Codex";
 }
 
@@ -338,7 +344,7 @@ function logTime(fallback: string, value: unknown) {
     const timestamp = (value as Record<string, unknown>).timestamp;
     if (typeof timestamp !== "string") return fallback;
     const date = new Date(timestamp);
-    return Number.isNaN(date.getTime()) ? fallback : date.toLocaleTimeString();
+    return Number.isNaN(date.getTime()) ? fallback : date.toLocaleTimeString(i18n.language);
 }
 
 function parseJsonEntries(value: unknown): unknown[] {
@@ -411,7 +417,7 @@ function compactLogText(value: string) {
 function logSignature(value: string) {
     return value
         .replace(/[a-z]:\\[^\r\n]*?skill\.md/gi, "<SKILL.md>")
-        .replace(/file:\/\/\/[^\s"']+/gi, "<路径>")
+        .replace(/file:\/\/\/[^\s"']+/gi, i18n.t("log.path", { ns: "agent" }))
         .replace(/[0-9a-f]{8}-[0-9a-f-]{27,}/gi, "<ID>");
 }
 

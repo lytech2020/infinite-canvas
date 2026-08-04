@@ -1,4 +1,5 @@
 import type { CanvasAgentSnapshot } from "@/lib/canvas/canvas-agent-ops";
+import { errorText } from "@/i18n/error-text";
 
 type AgentConfigResponse = { ok?: boolean; protocolVersion?: number; url?: string; token?: string; hasToken?: boolean };
 
@@ -38,7 +39,7 @@ export async function fetchAgentJson<T>(endpoint: string, token: string, path: s
     const url = `${endpoint}${path}${path.includes("?") ? "&" : "?"}token=${encodeURIComponent(token)}`;
     const res = await fetch(url, init);
     const data = (await res.json().catch(() => ({}))) as T & { error?: string; msg?: string };
-    if (!res.ok) throw new Error(data.error || data.msg || "本地 Agent 请求失败");
+    if (!res.ok) throw new Error(data.error || data.msg || errorText("agentRequestFailed"));
     return data;
 }
 

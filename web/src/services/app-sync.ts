@@ -8,6 +8,7 @@ import { useAssetStore } from "@/stores/use-asset-store";
 import type { WebdavSyncConfig } from "@/stores/use-config-store";
 import type { CanvasProject } from "@/stores/canvas/use-canvas-store";
 import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
+import { errorText } from "@/i18n/error-text";
 
 type StoredLog = Record<string, unknown> & { id?: string };
 export type AppSyncDomainKey = "canvas" | "assets" | "image-workbench" | "video-workbench";
@@ -176,7 +177,7 @@ async function readDomainManifest<T>(config: WebdavSyncConfig, domain: DomainKey
     const file = await downloadWebdavFile(config, domainPath(domain, WEBDAV_MANIFEST_FILE_NAME));
     if (!file) return null;
     const data = JSON.parse(await file.text()) as DomainManifest<T>;
-    if (data.app !== "infinite-canvas" || data.domain !== domain) throw new Error(`${domain} 同步清单不是当前应用的数据`);
+    if (data.app !== "infinite-canvas" || data.domain !== domain) throw new Error(errorText("syncManifestInvalid", { domain }));
     return {
         app: "infinite-canvas",
         version: 1,

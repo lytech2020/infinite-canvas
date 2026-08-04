@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { BookOpen, Bot, Download, Home, Images, Menu, PanelLeftClose, PanelLeftOpen, Plus, Redo2, Trash2, Undo2, Upload } from "lucide-react";
 import { Button, Dropdown, Modal, Tooltip } from "antd";
+import { useTranslation } from "react-i18next";
 
 import { UserStatusActions } from "@/components/layout/user-status-actions";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { useCanvasSidePanelStore } from "@/stores/use-canvas-side-panel-store";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { DOCS_URL } from "@/constant/env";
+import { localizeAgentText } from "@/i18n/agent-text";
 
 export function CanvasTopBar({
     title,
@@ -53,6 +55,7 @@ export function CanvasTopBar({
     compactAgentStatus: { connected: boolean; enabled: boolean; activity: string };
     onToggleAgent: () => void;
 }) {
+    const { t } = useTranslation("canvas");
     const colorTheme = useThemeStore((state) => state.theme);
     const theme = canvasThemes[colorTheme];
     const titleRef = useRef<HTMLDivElement>(null);
@@ -73,11 +76,11 @@ export function CanvasTopBar({
         <>
             <div className="pointer-events-none absolute left-0 right-0 top-0 z-50 flex h-16 items-center justify-between pl-1 pr-4">
                 <div className="pointer-events-auto flex min-w-0 items-center gap-2">
-                    <Tooltip title={sidePanelOpen ? "收起面板" : "展开面板"}>
+                    <Tooltip title={t(sidePanelOpen ? "topBar.collapsePanel" : "topBar.expandPanel")}>
                         <button
                             type="button"
                             onClick={toggleSidePanel}
-                            aria-label={sidePanelOpen ? "收起面板" : "展开面板"}
+                            aria-label={t(sidePanelOpen ? "topBar.collapsePanel" : "topBar.expandPanel")}
                             className="grid size-7 place-items-center rounded-full transition hover:bg-black/5 dark:hover:bg-white/10"
                             style={{ color: theme.node.text }}
                         >
@@ -88,22 +91,22 @@ export function CanvasTopBar({
                         trigger={["click"]}
                         menu={{
                             items: [
-                                { key: "home", icon: <Home className="size-4" />, label: "主页", onClick: onHome },
-                                { key: "docs", icon: <BookOpen className="size-4" />, label: "文档", onClick: () => window.open(DOCS_URL, "_blank", "noopener,noreferrer") },
-                                { key: "projects", icon: <Images className="size-4" />, label: "我的画布", onClick: onProjects },
+                                { key: "home", icon: <Home className="size-4" />, label: t("topBar.home"), onClick: onHome },
+                                { key: "docs", icon: <BookOpen className="size-4" />, label: t("topBar.docs"), onClick: () => window.open(DOCS_URL, "_blank", "noopener,noreferrer") },
+                                { key: "projects", icon: <Images className="size-4" />, label: t("topBar.projects"), onClick: onProjects },
                                 { type: "divider" },
-                                { key: "new", icon: <Plus className="size-4" />, label: "新建画布", onClick: onCreateProject },
-                                { key: "delete", danger: true, icon: <Trash2 className="size-4" />, label: "删除当前画布", onClick: onDeleteProject },
+                                { key: "new", icon: <Plus className="size-4" />, label: t("topBar.newCanvas"), onClick: onCreateProject },
+                                { key: "delete", danger: true, icon: <Trash2 className="size-4" />, label: t("topBar.deleteCanvas"), onClick: onDeleteProject },
                                 { type: "divider" },
-                                { key: "import", icon: <Upload className="size-4" />, label: "导入资产", onClick: onImportImage },
-                                { key: "export", icon: <Download className="size-4" />, label: "导出当前画布", onClick: onExportProject },
+                                { key: "import", icon: <Upload className="size-4" />, label: t("topBar.importAsset"), onClick: onImportImage },
+                                { key: "export", icon: <Download className="size-4" />, label: t("topBar.exportCanvas"), onClick: onExportProject },
                                 { type: "divider" },
-                                { key: "undo", disabled: !canUndo, icon: <Undo2 className="size-4" />, label: <MenuLabel text="撤销" shortcut="⌘ Z" />, onClick: onUndo },
-                                { key: "redo", disabled: !canRedo, icon: <Redo2 className="size-4" />, label: <MenuLabel text="重做" shortcut="⌘ ⇧ Z / ⌘ Y" />, onClick: onRedo },
+                                { key: "undo", disabled: !canUndo, icon: <Undo2 className="size-4" />, label: <MenuLabel text={t("toolbar.undo")} shortcut="⌘ Z" />, onClick: onUndo },
+                                { key: "redo", disabled: !canRedo, icon: <Redo2 className="size-4" />, label: <MenuLabel text={t("toolbar.redo")} shortcut="⌘ ⇧ Z / ⌘ Y" />, onClick: onRedo },
                             ],
                         }}
                     >
-                        <button type="button" className="grid size-7 place-items-center rounded-full transition hover:bg-black/5 dark:hover:bg-white/10" style={{ color: theme.node.text }} aria-label="打开画布菜单">
+                        <button type="button" className="grid size-7 place-items-center rounded-full transition hover:bg-black/5 dark:hover:bg-white/10" style={{ color: theme.node.text }} aria-label={t("topBar.openMenu")}>
                             <Menu className="size-4" />
                         </button>
                     </Dropdown>
@@ -127,7 +130,7 @@ export function CanvasTopBar({
                                 type="button"
                                 className="max-w-[280px] truncate border-b border-dashed border-transparent text-left text-lg font-semibold tracking-normal transition hover:border-current"
                                 onDoubleClick={onStartTitleEditing}
-                                title="双击修改画布名称"
+                                title={t("topBar.renameHint")}
                             >
                                 {title}
                             </button>
@@ -150,21 +153,21 @@ export function CanvasTopBar({
                     </Button>
                 </div>
             </div>
-            <Modal title="快捷键" open={shortcutsOpen} onCancel={() => setShortcutsOpen(false)} footer={null} centered>
+            <Modal title={t("topBar.shortcuts")} open={shortcutsOpen} onCancel={() => setShortcutsOpen(false)} footer={null} centered>
                 <div className="space-y-2 border-t pt-4 text-sm" style={{ borderColor: theme.node.stroke }}>
-                    <Shortcut keys={["拖动画布"]} value="平移视图" />
-                    <Shortcut keys={["滚轮"]} value="缩放画布" />
-                    <Shortcut keys={["缩放滑杆"]} value="精确调整缩放" />
-                    <Shortcut keys={["Ctrl / Cmd", "拖动"]} value="框选多个节点" />
-                    <Shortcut keys={["Shift / Ctrl / Cmd", "点击"]} value="追加选择节点" />
-                    <Shortcut keys={["Ctrl / Cmd", "A"]} value="全选节点" />
-                    <Shortcut keys={["Ctrl / Cmd", "C / V"]} value="复制 / 粘贴节点，或粘贴剪切板文本/图片" />
-                    <Shortcut keys={["Ctrl / Cmd", "Z"]} value="撤销" />
-                    <Shortcut keys={["Ctrl / Cmd", "Shift", "Z"]} value="重做" />
-                    <Shortcut keys={["Ctrl / Cmd", "Y"]} value="重做" />
-                    <Shortcut keys={["Delete / Backspace"]} value="删除选中" />
-                    <Shortcut keys={["Esc"]} value="取消选择并关闭浮层" />
-                    <Shortcut keys={["拖入图片/视频/音频"]} value="上传到画布" />
+                    <Shortcut keys={[t("topBar.shortcutItems.dragCanvas")]} value={t("topBar.shortcutItems.panView")} />
+                    <Shortcut keys={[t("topBar.shortcutItems.wheel")]} value={t("topBar.shortcutItems.zoomCanvas")} />
+                    <Shortcut keys={[t("topBar.shortcutItems.zoomSlider")]} value={t("topBar.shortcutItems.preciseZoom")} />
+                    <Shortcut keys={["Ctrl / Cmd", t("topBar.shortcutItems.drag")]} value={t("topBar.shortcutItems.boxSelect")} />
+                    <Shortcut keys={["Shift / Ctrl / Cmd", t("topBar.shortcutItems.click")]} value={t("topBar.shortcutItems.addSelection")} />
+                    <Shortcut keys={["Ctrl / Cmd", "A"]} value={t("topBar.shortcutItems.selectAll")} />
+                    <Shortcut keys={["Ctrl / Cmd", "C / V"]} value={t("topBar.shortcutItems.copyPaste")} />
+                    <Shortcut keys={["Ctrl / Cmd", "Z"]} value={t("toolbar.undo")} />
+                    <Shortcut keys={["Ctrl / Cmd", "Shift", "Z"]} value={t("toolbar.redo")} />
+                    <Shortcut keys={["Ctrl / Cmd", "Y"]} value={t("toolbar.redo")} />
+                    <Shortcut keys={["Delete / Backspace"]} value={t("topBar.shortcutItems.deleteSelected")} />
+                    <Shortcut keys={["Esc"]} value={t("topBar.shortcutItems.dismiss")} />
+                    <Shortcut keys={[t("topBar.shortcutItems.dropMedia")]} value={t("topBar.shortcutItems.uploadCanvas")} />
                 </div>
             </Modal>
         </>
@@ -181,12 +184,13 @@ function MenuLabel({ text, shortcut }: { text: string; shortcut: string }) {
 }
 
 function CompactAgentStatus({ status, onClick }: { status: { connected: boolean; enabled: boolean; activity: string }; onClick: () => void }) {
+    const { t } = useTranslation("canvas");
     const colorTheme = useThemeStore((state) => state.theme);
     const theme = canvasThemes[colorTheme];
-    const label = status.connected ? "Codex 已连接" : status.enabled ? `Codex ${status.activity || "连接中"}` : "Codex 未连接";
+    const label = status.connected ? t("topBar.connected") : status.enabled ? t("topBar.connecting", { activity: localizeAgentText(status.activity) || t("topBar.connectingFallback") }) : t("topBar.disconnected");
     const dotColor = status.connected ? "#22c55e" : status.enabled ? "#f59e0b" : theme.node.muted;
     return (
-        <button type="button" className="flex h-8 items-center gap-1.5 text-xs transition hover:opacity-75" style={{ color: status.connected ? "#16a34a" : status.enabled ? "#d97706" : theme.node.muted }} onClick={onClick} title="打开本地 Codex 面板">
+        <button type="button" className="flex h-8 items-center gap-1.5 text-xs transition hover:opacity-75" style={{ color: status.connected ? "#16a34a" : status.enabled ? "#d97706" : theme.node.muted }} onClick={onClick} title={t("topBar.openAgent")}>
             <span className="size-2 rounded-full" style={{ background: dotColor }} />
             <span className="max-w-[140px] truncate">{label}</span>
         </button>

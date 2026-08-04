@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
+import { useTranslation } from "react-i18next";
 
 import { useAgentStore } from "@/stores/use-agent-store";
 import { applyCanvasAgentOps, type CanvasAgentOp, type CanvasAgentSnapshot } from "@/lib/canvas/canvas-agent-ops";
@@ -32,11 +33,12 @@ type AgentBridgeParams = {
  * 供本地 Codex 面板读取。除 applyAgentOps（配置节点插件宿主会用到）外均为内部实现。
  */
 export function useAgentBridge(params: AgentBridgeParams) {
+    const { t } = useTranslation("canvas");
     const { projectId, title, nodes, connections, selectedNodeIds, viewport, nodesRef, connectionsRef, selectedNodeIdsRef, viewportRef, generateNodeRef, setNodes, setConnections, setSelectedNodeIds, setSelectedConnectionId, setViewport, setContextMenu } =
         params;
     const setAgentCanvasContext = useAgentStore((state) => state.setCanvasContext);
     const [agentUndoSnapshot, setAgentUndoSnapshot] = useState<CanvasAgentSnapshot | null>(null);
-    const projectTitle = title || "未命名画布";
+    const projectTitle = title || t("project.unnamedCanvas");
 
     const agentSnapshot = useMemo<CanvasAgentSnapshot>(() => ({ projectId, title: projectTitle, nodes, connections, selectedNodeIds: Array.from(selectedNodeIds), viewport }), [connections, projectTitle, nodes, projectId, selectedNodeIds, viewport]);
     const applyAgentOps = useCallback(

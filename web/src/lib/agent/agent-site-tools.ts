@@ -1,4 +1,5 @@
 import type { NavigateFunction } from "react-router-dom";
+import { errorText } from "@/i18n/error-text";
 
 import { fetchPrompts } from "@/services/api/prompts";
 import { uploadImage } from "@/services/image-storage";
@@ -69,7 +70,7 @@ export async function runSiteTool(name: SiteToolName, input: SiteToolInput, navi
         case "assets_add":
             return addAsset(input);
         default:
-            throw new Error(`未知工具：${name}`);
+            throw new Error(errorText("unknownTool", { name }));
     }
 }
 
@@ -125,7 +126,7 @@ function compactPrompt(prompt: unknown) {
 
 function listCanvasProjects(input: SiteToolInput) {
     const { projects, hydrated } = useCanvasStore.getState();
-    if (!hydrated) throw new Error("画布还在加载中，请稍后重试");
+    if (!hydrated) throw new Error(errorText("canvasLoading"));
     const keyword = String(input.keyword || "").trim().toLowerCase();
     const filtered = keyword ? projects.filter((project) => project.title.toLowerCase().includes(keyword)) : projects;
     const { page, pageSize, start, end } = paginate(input, filtered.length, 20);
@@ -252,7 +253,7 @@ async function searchPrompts(input: SiteToolInput) {
 
 function listAssets(input: SiteToolInput) {
     const { assets, hydrated } = useAssetStore.getState();
-    if (!hydrated) throw new Error("资产还在加载中，请稍后重试");
+    if (!hydrated) throw new Error(errorText("assetsLoading"));
     const kind = input.kind === "text" || input.kind === "image" || input.kind === "video" ? input.kind : "all";
     const keyword = String(input.keyword || "").trim().toLowerCase();
     const filtered = assets.filter((asset) => {
@@ -279,30 +280,30 @@ function listAssets(input: SiteToolInput) {
 async function addAsset(input: SiteToolInput) {
     const kind = input.kind;
     const title = String(input.title || "").trim();
-    if (!title) throw new Error("请提供资产标题 title");
+    if (!title) throw new Error(errorText("assetTitleRequired"));
     const tags = Array.isArray(input.tags) ? input.tags.filter((tag): tag is string => typeof tag === "string") : [];
     const source = typeof input.source === "string" ? input.source : "Agent";
     const note = typeof input.note === "string" ? input.note : undefined;
     const store = useAssetStore.getState();
     if (kind === "text") {
         const content = String(input.content || "").trim();
-        if (!content) throw new Error("kind=text 时需要提供 content 文本内容");
+        if (!content) throw new Error(errorText("assetTextRequired"));
         const id = store.addAsset({ kind: "text", title, coverUrl: "", tags, source, note, data: { content } });
         return { ok: true, id, kind: "text" };
     }
     if (kind === "image") {
         const imageUrl = String(input.imageUrl || "").trim();
-        if (!imageUrl) throw new Error("kind=image 时需要提供 imageUrl（图片地址或 dataURL）");
+        if (!imageUrl) throw new Error(errorText("assetImageRequired"));
         let stored;
         try {
             stored = await uploadImage(imageUrl);
         } catch {
-            throw new Error("无法读取该图片地址，请改用 dataURL 或可跨域访问的图片链接");
+            throw new Error(errorText("assetImageUnreadable"));
         }
         const id = store.addAsset({ kind: "image", title, coverUrl: stored.url, tags, source, note, data: { dataUrl: stored.url, storageKey: stored.storageKey, width: stored.width, height: stored.height, bytes: stored.bytes, mimeType: stored.mimeType } });
         return { ok: true, id, kind: "image" };
     }
-    throw new Error("assets_add 仅支持 kind=text 或 kind=image");
+    throw new Error(errorText("assetKindUnsupported"));
 }
 
 function paginate(input: SiteToolInput, total: number, defaultSize: number) {

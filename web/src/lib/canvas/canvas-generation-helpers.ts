@@ -7,6 +7,7 @@ import type { CanvasNodeGenerationMode } from "@/components/canvas/canvas-node-p
 import type { CanvasImageAngleParams } from "@/components/canvas/canvas-node-angle-dialog";
 import type { ReferenceImage } from "@/types/image";
 import { CanvasNodeType, type CanvasAssistantSession, type CanvasConnection, type CanvasNodeData, type CanvasNodeMetadata } from "@/types/canvas";
+import i18n from "@/i18n";
 
 export function imageExtension(dataUrl: string) {
     return dataUrl.match(/^data:image[/]([^;]+)/)?.[1] || dataUrl.match(/image[/]([^;]+)/)?.[1] || "png";
@@ -110,11 +111,11 @@ export function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | u
 }
 
 export function resetInterruptedGeneration(nodes: CanvasNodeData[]) {
-    return nodes.map((node) => (node.metadata?.status === "loading" ? { ...node, metadata: { ...node.metadata, status: "error" as const, errorDetails: "页面刷新后生成已中断，请重新生成。" } } : node));
+    return nodes.map((node) => (node.metadata?.status === "loading" ? { ...node, metadata: { ...node.metadata, status: "error" as const, errorDetails: i18n.t("generation.interrupted", { ns: "canvas" }) } } : node));
 }
 
 export function isGenerationCanceled(error: unknown) {
-    return error instanceof Error && (error.message === "请求已取消" || error.name === "AbortError");
+    return error instanceof Error && error.name === "AbortError";
 }
 
 export function findRetrySourceNode(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]) {

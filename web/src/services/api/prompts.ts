@@ -3,6 +3,8 @@ import localforage from "localforage";
 import { runPromptSource, type RawPrompt } from "./prompt-source-runtime";
 import { usePromptSourceStore } from "@/stores/use-prompt-source-store";
 import type { PromptSource } from "./prompt-source-presets";
+import { errorText } from "@/i18n/error-text";
+import i18n from "@/i18n";
 
 export type Prompt = RawPrompt & {
     sourceId: string;
@@ -154,13 +156,13 @@ export async function fetchPrompts({ keyword = "", tag = [], category = ALL_PROM
 
 export async function fetchSourcePrompts(sourceId: string): Promise<Prompt[]> {
     const source = usePromptSourceStore.getState().sources.find((item) => item.id === sourceId);
-    if (!source) throw new Error("提示词来源不存在");
+    if (!source) throw new Error(errorText("promptSourceMissing"));
     return getSourcePrompts(source);
 }
 
 export async function refreshSource(sourceId: string): Promise<PromptSourceRefreshResult> {
     const source = usePromptSourceStore.getState().sources.find((item) => item.id === sourceId);
-    if (!source) throw new Error("提示词来源不存在");
+    if (!source) throw new Error(errorText("promptSourceMissing"));
     const result = await getOrStartRefresh(source);
     if (!result.success) throw new Error(result.lastError);
     return result;
@@ -221,5 +223,5 @@ function isActiveOption(value: string) {
 
 export function formatPromptDate(value: string) {
     const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? "" : new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
+    return Number.isNaN(date.getTime()) ? "" : new Intl.DateTimeFormat(i18n.resolvedLanguage || i18n.language, { year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
 }

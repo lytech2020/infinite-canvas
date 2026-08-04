@@ -1,4 +1,5 @@
 import axios, { type AxiosRequestConfig } from "axios";
+import { errorText } from "@/i18n/error-text";
 
 import { buildModelApiHeaders, buildModelApiUrl, type AiConfig, type ModelCapability } from "@/stores/use-config-store";
 
@@ -97,7 +98,7 @@ function createPoll(signal?: AbortSignal) {
             if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
             const result = extract(await request());
             if (result !== null && result !== undefined && result !== false) return result;
-            if (performance.now() >= deadline) throw new Error("插件轮询超时，请检查调用脚本或稍后重试");
+            if (performance.now() >= deadline) throw new Error(errorText("pluginPollTimeout"));
             await sleep(intervalMs, signal);
         }
     };
@@ -155,7 +156,7 @@ export async function runModelPlugin<T = unknown>(args: RunPluginArgs): Promise<
         if (error instanceof DOMException && error.name === "AbortError") throw error;
         if (axios.isCancel(error)) throw error;
         const message = error instanceof Error ? error.message : String(error);
-        throw new Error(`模型调用脚本执行失败：${message}`);
+        throw new Error(errorText("modelScriptFailed", { message }));
     }
 }
 
@@ -376,6 +377,6 @@ export function normalizePluginImages(result: unknown): string[] {
             return "";
         })
         .filter(Boolean);
-    if (!urls.length) throw new Error("模型调用脚本没有返回图片");
+    if (!urls.length) throw new Error(errorText("pluginImageMissing"));
     return urls;
 }

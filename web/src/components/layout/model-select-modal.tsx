@@ -1,6 +1,7 @@
 import { App, Button, Checkbox, Input, Modal, Tabs } from "antd";
 import { RefreshCw, Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { fetchChannelModels } from "@/services/api/image";
 import type { ModelChannel } from "@/stores/use-config-store";
@@ -8,6 +9,7 @@ import type { ModelChannel } from "@/stores/use-config-store";
 // 选择渠道模型弹窗：拉取上游模型列表或手动增加，勾选后才会进入渠道模型列表。
 export function ModelSelectModal({ open, channel, selectedNames, onConfirm, onClose }: { open: boolean; channel: ModelChannel | null; selectedNames: string[]; onConfirm: (names: string[]) => void; onClose: () => void }) {
     const { message } = App.useApp();
+    const { t } = useTranslation(["common", "config"]);
     const [existing, setExisting] = useState<string[]>([]);
     const [fetched, setFetched] = useState<string[]>([]);
     const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -60,7 +62,7 @@ export function ModelSelectModal({ open, channel, selectedNames, onConfirm, onCl
     const fetchModels = async () => {
         if (!channel) return;
         if (!channel.baseUrl.trim() || !channel.apiKey.trim()) {
-            message.error("请先填写接口地址和 API Key");
+            message.error(t("modelSelect.missingConfig", { ns: "config" }));
             return;
         }
         setLoading(true);
@@ -68,9 +70,9 @@ export function ModelSelectModal({ open, channel, selectedNames, onConfirm, onCl
             const models = await fetchChannelModels(channel);
             setFetched(models);
             setActiveTab("new");
-            message.success(`已拉取 ${models.length} 个模型`);
+            message.success(t("modelSelect.fetched", { ns: "config", count: models.length }));
         } catch (error) {
-            message.error(error instanceof Error ? error.message : "拉取模型失败");
+            message.error(error instanceof Error ? error.message : t("modelSelect.fetchFailed", { ns: "config" }));
         } finally {
             setLoading(false);
         }
@@ -90,47 +92,47 @@ export function ModelSelectModal({ open, channel, selectedNames, onConfirm, onCl
             onCancel={onClose}
             title={
                 <span>
-                    选择渠道模型 <span className="ml-2 text-xs font-normal text-stone-500">已选择 {selected.size} / {new Set([...existing, ...fetched]).size}</span>
+                    {t("modelSelect.title", { ns: "config" })} <span className="ml-2 text-xs font-normal text-stone-500">{t("modelSelect.selected", { ns: "config", selected: selected.size, total: new Set([...existing, ...fetched]).size })}</span>
                 </span>
             }
             styles={{ body: { maxHeight: "62vh", overflowY: "auto" } }}
             footer={[
                 <Button key="cancel" onClick={onClose}>
-                    取消
+                    {t("actions.cancel")}
                 </Button>,
                 <Button key="confirm" type="primary" onClick={confirm}>
-                    确定
+                    {t("actions.done")}
                 </Button>,
             ]}
         >
             <div className="flex flex-wrap items-center gap-3">
-                <Input className="min-w-[200px] flex-1" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索模型" prefix={<Search className="size-4 text-stone-400" />} allowClear />
-                <Input className="min-w-[180px] flex-1" value={manual} onChange={(event) => setManual(event.target.value)} onPressEnter={addManual} placeholder="输入模型名称" />
-                <Button onClick={addManual}>增加模型</Button>
+                <Input className="min-w-[200px] flex-1" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("modelSelect.search", { ns: "config" })} prefix={<Search className="size-4 text-stone-400" />} allowClear />
+                <Input className="min-w-[180px] flex-1" value={manual} onChange={(event) => setManual(event.target.value)} onPressEnter={addManual} placeholder={t("modelSelect.manual", { ns: "config" })} />
+                <Button onClick={addManual}>{t("modelSelect.add", { ns: "config" })}</Button>
                 <Button icon={<RefreshCw className="size-4" />} loading={loading} onClick={() => void fetchModels()}>
-                    拉取模型列表
+                    {t("modelSelect.fetch", { ns: "config" })}
                 </Button>
             </div>
-            <div className="mt-2 text-xs text-stone-500">如果上游不提供 OpenAI /models 模型列表接口，请在这里手动增加模型名称。</div>
+            <div className="mt-2 text-xs text-stone-500">{t("modelSelect.hint", { ns: "config" })}</div>
 
             <Tabs
                 className="mt-3"
                 activeKey={activeTab}
                 onChange={setActiveTab}
                 items={[
-                    { key: "new", label: `新获取的模型 (${fetched.length})` },
-                    { key: "existing", label: `已有的模型 (${existing.length})` },
+                    { key: "new", label: t("modelSelect.newTab", { ns: "config", count: fetched.length }) },
+                    { key: "existing", label: t("modelSelect.existingTab", { ns: "config", count: existing.length }) },
                 ]}
             />
 
             <div className="mb-3 flex items-center justify-between gap-2">
-                <span className="text-xs text-stone-500">当前列表已选择 {visibleSelectedCount} / {visibleList.length}</span>
+                <span className="text-xs text-stone-500">{t("modelSelect.visibleSelected", { ns: "config", selected: visibleSelectedCount, total: visibleList.length })}</span>
                 <div className="flex gap-2">
                     <Button size="small" disabled={!visibleList.length} onClick={() => selectVisible(true)}>
-                        全选当前列表
+                        {t("modelSelect.selectAll", { ns: "config" })}
                     </Button>
                     <Button size="small" disabled={!visibleSelectedCount} onClick={() => selectVisible(false)}>
-                        取消当前列表
+                        {t("modelSelect.clearCurrent", { ns: "config" })}
                     </Button>
                 </div>
             </div>
@@ -146,7 +148,7 @@ export function ModelSelectModal({ open, channel, selectedNames, onConfirm, onCl
                     ))}
                 </div>
             ) : (
-                <div className="py-8 text-center text-sm text-stone-500">{activeTab === "new" ? "点击「拉取模型列表」获取上游模型，或手动增加模型名称。" : "暂无已选择的模型。"}</div>
+                <div className="py-8 text-center text-sm text-stone-500">{t(activeTab === "new" ? "modelSelect.emptyNew" : "modelSelect.emptyExisting", { ns: "config" })}</div>
             )}
         </Modal>
     );

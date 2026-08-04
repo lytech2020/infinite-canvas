@@ -3,6 +3,7 @@ import type { CSSProperties, KeyboardEvent, MouseEvent, PointerEvent } from "rea
 import { createPortal } from "react-dom";
 import { Image } from "antd";
 import { FileText, Image as ImageIcon, Music2, Video } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { isImeComposing, isPlainEnterKey } from "@/lib/keyboard-event";
@@ -31,6 +32,7 @@ type Token =
 // 提示词面板专用的 contentEditable 输入框:@ 引用图片时直接内嵌真实缩略图 chip,而不是「图片1」文字。
 // 序列化时 chip → 引用 label 文本(如「图片1」),保证发给生成的 value 语义与旧 textarea 版一致。
 export function CanvasPromptChipInput({ value, references, onChange, onSubmit, className, style, placeholder }: Props) {
+    const { t } = useTranslation("canvas");
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const editorRef = useRef<HTMLDivElement>(null);
     const composingRef = useRef(false);
@@ -192,7 +194,7 @@ export function CanvasPromptChipInput({ value, references, onChange, onSubmit, c
             {mention && candidates.length ? (
                 <MentionMenu rect={mention.rect} references={candidates} activeIndex={Math.min(activeIndex, candidates.length - 1)} theme={theme} onSelect={insertReference} />
             ) : null}
-            {imagePreview ? <Image src={imagePreview} alt="引用图片预览" style={{ display: "none" }} preview={{ visible: true, src: imagePreview, onVisibleChange: (visible) => !visible && setImagePreview(null) }} /> : null}
+            {imagePreview ? <Image src={imagePreview} alt={t("configNode.preview")} style={{ display: "none" }} preview={{ visible: true, src: imagePreview, onVisibleChange: (visible) => !visible && setImagePreview(null) }} /> : null}
         </div>
     );
 }

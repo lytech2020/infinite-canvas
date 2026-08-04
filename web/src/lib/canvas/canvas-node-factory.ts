@@ -5,6 +5,7 @@ import type { UploadedImage } from "@/services/image-storage";
 import type { UploadedFile } from "@/services/file-storage";
 import type { ReferenceImage } from "@/types/image";
 import { CanvasNodeType, type CanvasImageGenerationType, type CanvasNodeData, type CanvasNodeMetadata, type CanvasNodeTypeId, type Position } from "@/types/canvas";
+import i18n from "@/i18n";
 
 export function createCanvasNode(type: CanvasNodeTypeId, position: Position, metadata?: CanvasNodeMetadata): CanvasNodeData {
     const spec = getNodeSpec(type);
@@ -13,7 +14,7 @@ export function createCanvasNode(type: CanvasNodeTypeId, position: Position, met
     return {
         id,
         type,
-        title: spec.title,
+        title: builtinNodeTitle(type) || spec.title,
         position: {
             x: position.x - spec.width / 2,
             y: position.y - spec.height / 2,
@@ -22,6 +23,11 @@ export function createCanvasNode(type: CanvasNodeTypeId, position: Position, met
         height: spec.height,
         metadata: { ...spec.metadata, ...metadata },
     };
+}
+
+function builtinNodeTitle(type: CanvasNodeTypeId) {
+    const keys: Partial<Record<CanvasNodeTypeId, string>> = { [CanvasNodeType.Text]: "configNode.text", [CanvasNodeType.Image]: "configNode.image", [CanvasNodeType.Video]: "configNode.video", [CanvasNodeType.Audio]: "configNode.audio", [CanvasNodeType.Config]: "configNode.title", [CanvasNodeType.Group]: "node.group" };
+    return keys[type] ? i18n.t(keys[type], { ns: "canvas" }) : "";
 }
 
 export function imageMetadata(image: UploadedImage): CanvasNodeMetadata {

@@ -3,6 +3,7 @@ import { App, Empty, Input, Popconfirm, Select, Spin, Tag } from "antd";
 import { useQuery } from "@tanstack/react-query";
 import { BookOpen, Check, ChevronRight, Download, Eye, FileText, Image as ImageIcon, ListChecks, Music2, Plus, Search, Settings2, Square, Trash2, Type, Video } from "lucide-react";
 import { motion } from "motion/react";
+import { useTranslation } from "react-i18next";
 
 import { canvasThemes, type CanvasTheme } from "@/lib/canvas-theme";
 import { exportCanvasNodes } from "@/lib/canvas/canvas-export";
@@ -50,6 +51,7 @@ const STATUS_COLOR: Record<string, string> = {
 };
 
 export function CanvasSidePanel({ nodes, selectedNodeIds, onFocusNode, onPreviewNode, onInsertAsset }: Props) {
+    const { t } = useTranslation("canvas");
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const [tab, setTab] = useState<PanelTab>("canvas");
     const width = useCanvasSidePanelStore((state) => state.width);
@@ -98,9 +100,9 @@ export function CanvasSidePanel({ nodes, selectedNodeIds, onFocusNode, onPreview
                 data-canvas-no-zoom
             >
                 <div className="flex items-center gap-5 px-4 pt-3.5">
-                    <TabButton label="画布" active={tab === "canvas"} theme={theme} onClick={() => setTab("canvas")} />
-                    <TabButton label="资产" active={tab === "assets"} theme={theme} onClick={() => setTab("assets")} />
-                    <TabButton label="提示词库" active={tab === "prompts"} theme={theme} onClick={() => setTab("prompts")} />
+                    <TabButton label={t("sidePanel.canvas")} active={tab === "canvas"} theme={theme} onClick={() => setTab("canvas")} />
+                    <TabButton label={t("sidePanel.assets")} active={tab === "assets"} theme={theme} onClick={() => setTab("assets")} />
+                    <TabButton label={t("sidePanel.prompts")} active={tab === "prompts"} theme={theme} onClick={() => setTab("prompts")} />
                 </div>
                 <div className="mt-2 min-h-0 flex-1 overflow-hidden">
                     {tab === "canvas" ? (
@@ -111,7 +113,7 @@ export function CanvasSidePanel({ nodes, selectedNodeIds, onFocusNode, onPreview
                         <CanvasPromptsTab onInsert={onInsertAsset} theme={theme} />
                     )}
                 </div>
-                <button type="button" className="absolute inset-y-0 right-0 z-40 w-4 translate-x-1/2 cursor-col-resize" onPointerDown={startResize} aria-label="调整左侧面板宽度" />
+                <button type="button" className="absolute inset-y-0 right-0 z-40 w-4 translate-x-1/2 cursor-col-resize" onPointerDown={startResize} aria-label={t("sidePanel.resize")} />
             </motion.aside>
         </motion.div>
     );
@@ -130,28 +132,28 @@ function TabButton({ label, active, theme, onClick }: { label: string; active: b
 // 画布 Tab —— 列出节点,点击居中放大并选中
 // ---------------------------------------------------------------------------
 
-const NODE_FILTER_OPTIONS = [
-    { label: "全部", value: "all" },
-    { label: "图片", value: CanvasNodeType.Image },
-    { label: "视频", value: CanvasNodeType.Video },
-    { label: "文本", value: CanvasNodeType.Text },
-    { label: "音频", value: CanvasNodeType.Audio },
-    { label: "配置", value: CanvasNodeType.Config },
-    { label: "分组", value: CanvasNodeType.Group },
-];
-
 function nodePreviewText(node: CanvasNodeData) {
     if (node.type === CanvasNodeType.Text) return node.metadata?.content || node.metadata?.prompt || "";
     return getNodeDefinition(node.type)?.title || node.type;
 }
 
 function CanvasNodesTab({ nodes, selectedNodeIds, onFocusNode, onPreviewNode, theme }: { nodes: CanvasNodeData[]; selectedNodeIds: Set<string>; onFocusNode: (nodeId: string) => void; onPreviewNode: (nodeId: string) => void; theme: CanvasTheme }) {
+    const { t } = useTranslation("canvas");
     const { message } = App.useApp();
     const [keyword, setKeyword] = useState("");
     const [typeFilter, setTypeFilter] = useState<string>("all");
     const [selectMode, setSelectMode] = useState(false);
     const [checked, setChecked] = useState<Set<string>>(new Set());
     const [exporting, setExporting] = useState(false);
+    const nodeFilterOptions = [
+        { label: t("sidePanel.all"), value: "all" },
+        { label: t("sidePanel.image"), value: CanvasNodeType.Image },
+        { label: t("sidePanel.video"), value: CanvasNodeType.Video },
+        { label: t("sidePanel.text"), value: CanvasNodeType.Text },
+        { label: t("sidePanel.audio"), value: CanvasNodeType.Audio },
+        { label: t("sidePanel.config"), value: CanvasNodeType.Config },
+        { label: t("sidePanel.group"), value: CanvasNodeType.Group },
+    ];
 
     const filtered = useMemo(() => {
         const query = keyword.trim().toLowerCase();
@@ -175,14 +177,14 @@ function CanvasNodesTab({ nodes, selectedNodeIds, onFocusNode, onPreviewNode, th
         const targets = nodes.filter((node) => checked.has(node.id));
         if (!targets.length) return;
         setExporting(true);
-        const hide = message.loading("正在导出选中元素…", 0);
+        const hide = message.loading(t("sidePanel.exporting"), 0);
         try {
-            await exportCanvasNodes(targets, `画布元素-${targets.length}个`);
-            message.success(`已导出 ${targets.length} 个元素`);
+            await exportCanvasNodes(targets, t("sidePanel.exportFileName", { count: targets.length }));
+            message.success(t("sidePanel.exported", { count: targets.length }));
             exitSelect();
         } catch (error) {
             console.error(error);
-            message.error("导出失败，请重试");
+            message.error(t("sidePanel.exportFailed"));
         } finally {
             hide();
             setExporting(false);
@@ -192,7 +194,7 @@ function CanvasNodesTab({ nodes, selectedNodeIds, onFocusNode, onPreviewNode, th
     return (
         <div className="flex h-full flex-col">
             <div className="flex items-center gap-2 px-3 pb-2.5 pt-1">
-                <span className="text-xs font-medium opacity-60">画布元素</span>
+                <span className="text-xs font-medium opacity-60">{t("sidePanel.elements")}</span>
                 {filtered.length ? <span className="text-xs opacity-35">{filtered.length}</span> : null}
                 <button
                     type="button"
@@ -201,12 +203,12 @@ function CanvasNodesTab({ nodes, selectedNodeIds, onFocusNode, onPreviewNode, th
                     style={selectMode ? { color: theme.toolbar.activeText, opacity: 1 } : undefined}
                 >
                     <ListChecks className="size-3.5" />
-                    {selectMode ? "取消" : "选择"}
+                    {t(selectMode ? "sidePanel.cancel" : "sidePanel.select")}
                 </button>
-                {selectMode ? null : <Select size="small" variant="borderless" className="w-20" value={typeFilter} onChange={setTypeFilter} options={NODE_FILTER_OPTIONS} />}
+                {selectMode ? null : <Select size="small" variant="borderless" className="w-20" value={typeFilter} onChange={setTypeFilter} options={nodeFilterOptions} />}
             </div>
             <div className="px-3 pb-2.5">
-                <Input size="small" allowClear prefix={<Search className="size-3.5 text-stone-400" />} placeholder="搜索节点" value={keyword} onChange={(e) => setKeyword(e.target.value)} />
+                <Input size="small" allowClear prefix={<Search className="size-3.5 text-stone-400" />} placeholder={t("sidePanel.searchNodes")} value={keyword} onChange={(e) => setKeyword(e.target.value)} />
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
                 {filtered.length ? (
@@ -218,20 +220,20 @@ function CanvasNodesTab({ nodes, selectedNodeIds, onFocusNode, onPreviewNode, th
                             const active = selectMode ? isChecked : selectedNodeIds.has(node.id);
                             return (
                                 <div key={node.id} className={cn("group flex w-full items-center rounded-lg transition", active ? "" : "hover:bg-black/5 dark:hover:bg-white/5")} style={active ? { background: theme.toolbar.activeBg } : undefined}>
-                                    <button type="button" onClick={() => (selectMode ? toggleChecked(node.id) : onFocusNode(node.id))} className="flex min-w-0 flex-1 items-center gap-3 px-2 py-2 text-left" title={selectMode ? undefined : "定位到节点"}>
+                                    <button type="button" onClick={() => (selectMode ? toggleChecked(node.id) : onFocusNode(node.id))} className="flex min-w-0 flex-1 items-center gap-3 px-2 py-2 text-left" title={selectMode ? undefined : t("sidePanel.locating")}>
                                         {selectMode ? <CheckMark checked={isChecked} theme={theme} /> : null}
                                         <span className="grid size-10 shrink-0 place-items-center overflow-hidden rounded-md">
                                             {isImage ? <img src={node.metadata!.content} alt={node.title} className="size-full object-cover" /> : <Icon className="size-5 opacity-60" />}
                                         </span>
                                         <span className="min-w-0 flex-1 space-y-0.5">
-                                            <span className="block truncate text-sm font-medium leading-snug">{node.title || getNodeDefinition(node.type)?.title || "未命名节点"}</span>
+                                            <span className="block truncate text-sm font-medium leading-snug">{node.title || getNodeDefinition(node.type)?.title || t("sidePanel.unnamedNode")}</span>
                                             <span className="block truncate text-xs leading-snug opacity-50">{nodePreviewText(node)}</span>
                                         </span>
                                         {node.metadata?.status && node.metadata.status !== "idle" ? <span className="size-1.5 shrink-0 rounded-full" style={{ background: STATUS_COLOR[node.metadata.status] || "transparent" }} /> : null}
                                     </button>
                                     {selectMode || !isImage ? null : (
                                         <div className="flex shrink-0 flex-col items-center gap-0.5 pr-1.5">
-                                            <button type="button" onClick={() => onPreviewNode(node.id)} className="grid size-7 place-items-center rounded-md opacity-55 transition hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/10" aria-label="放大预览" title="放大预览">
+                                            <button type="button" onClick={() => onPreviewNode(node.id)} className="grid size-7 place-items-center rounded-md opacity-55 transition hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/10" aria-label={t("sidePanel.preview")} title={t("sidePanel.preview")}>
                                                 <Eye className="size-3.5" />
                                             </button>
                                         </div>
@@ -241,15 +243,15 @@ function CanvasNodesTab({ nodes, selectedNodeIds, onFocusNode, onPreviewNode, th
                         })}
                     </div>
                 ) : (
-                    <div className="pt-16 text-center text-sm opacity-40">画布暂无节点</div>
+                    <div className="pt-16 text-center text-sm opacity-40">{t("sidePanel.noNodes")}</div>
                 )}
             </div>
             {selectMode ? (
                 <div className="flex items-center gap-2 border-t px-3 py-2.5" style={{ borderColor: theme.toolbar.border }}>
                     <button type="button" onClick={toggleAll} className="rounded-md px-2 py-1 text-xs font-medium opacity-70 transition hover:bg-black/5 hover:opacity-100 dark:hover:bg-white/10">
-                        {allChecked ? "取消全选" : "全选"}
+                        {t(allChecked ? "sidePanel.deselectAll" : "sidePanel.selectAll")}
                     </button>
-                    <span className="text-xs opacity-45">已选 {checked.size}</span>
+                    <span className="text-xs opacity-45">{t("sidePanel.selected", { count: checked.size })}</span>
                     <button
                         type="button"
                         onClick={() => void handleExport()}
@@ -258,7 +260,7 @@ function CanvasNodesTab({ nodes, selectedNodeIds, onFocusNode, onPreviewNode, th
                         style={{ color: theme.node.text }}
                     >
                         <Download className="size-3.5" />
-                        导出选中
+                        {t("sidePanel.exportSelected")}
                     </button>
                 </div>
             ) : null}
@@ -278,10 +280,10 @@ function CheckMark({ checked, theme }: { checked: boolean; theme: CanvasTheme })
 // 资产 Tab —— 按类型折叠分组 + 标签筛选,点击插入画布
 // ---------------------------------------------------------------------------
 
-const ASSET_GROUPS: { kind: AssetKind; label: string; icon: typeof Square }[] = [
-    { kind: "image", label: "图片", icon: ImageIcon },
-    { kind: "video", label: "视频", icon: Video },
-    { kind: "text", label: "文本", icon: FileText },
+const ASSET_GROUPS: { kind: AssetKind; icon: typeof Square }[] = [
+    { kind: "image", icon: ImageIcon },
+    { kind: "video", icon: Video },
+    { kind: "text", icon: FileText },
 ];
 
 function buildInsertPayload(asset: Asset): InsertAssetPayload {
@@ -291,6 +293,7 @@ function buildInsertPayload(asset: Asset): InsertAssetPayload {
 }
 
 const CanvasAssetsTab = memo(function CanvasAssetsTab({ onInsert, theme }: { onInsert: (payload: InsertAssetPayload) => void; theme: CanvasTheme }) {
+    const { t } = useTranslation("canvas");
     const { message } = App.useApp();
     const assets = useAssetStore((state) => state.assets);
     const addAsset = useAssetStore((state) => state.addAsset);
@@ -314,25 +317,25 @@ const CanvasAssetsTab = memo(function CanvasAssetsTab({ onInsert, theme }: { onI
         const files = Array.from(fileList || []);
         if (!files.length) return;
         setUploading(true);
-        const hide = message.loading("正在添加资产…", 0);
+        const hide = message.loading(t("sidePanel.addingAssets"), 0);
         let added = 0;
         try {
             for (const file of files) {
                 if (file.type.startsWith("image/")) {
                     const image = await uploadImage(file);
-                    addAsset({ kind: "image", title: file.name || "图片", coverUrl: image.url, tags: [], data: { dataUrl: image.url, storageKey: image.storageKey, width: image.width, height: image.height, bytes: image.bytes, mimeType: image.mimeType } });
+                    addAsset({ kind: "image", title: file.name || t("sidePanel.image"), coverUrl: image.url, tags: [], data: { dataUrl: image.url, storageKey: image.storageKey, width: image.width, height: image.height, bytes: image.bytes, mimeType: image.mimeType } });
                     added += 1;
                 } else if (file.type.startsWith("video/")) {
                     const media = await uploadMediaFile(file, "video");
-                    addAsset({ kind: "video", title: file.name || "视频", coverUrl: "", tags: [], data: { url: media.url, storageKey: media.storageKey, width: media.width || 0, height: media.height || 0, bytes: media.bytes, mimeType: media.mimeType } });
+                    addAsset({ kind: "video", title: file.name || t("sidePanel.video"), coverUrl: "", tags: [], data: { url: media.url, storageKey: media.storageKey, width: media.width || 0, height: media.height || 0, bytes: media.bytes, mimeType: media.mimeType } });
                     added += 1;
                 }
             }
-            if (added) message.success(`已添加 ${added} 个资产`);
-            else message.warning("仅支持图片或视频文件");
+            if (added) message.success(t("sidePanel.addedAssets", { count: added }));
+            else message.warning(t("sidePanel.mediaOnly"));
         } catch (error) {
             console.error(error);
-            message.error("添加失败，请重试");
+            message.error(t("sidePanel.addFailed"));
         } finally {
             hide();
             setUploading(false);
@@ -343,7 +346,7 @@ const CanvasAssetsTab = memo(function CanvasAssetsTab({ onInsert, theme }: { onI
     return (
         <div className="flex h-full flex-col">
             <div className="flex items-center gap-2 px-3 pb-2 pt-1">
-                <Input size="small" allowClear prefix={<Search className="size-3.5 text-stone-400" />} placeholder="搜索资产" value={keyword} onChange={(e) => setKeyword(e.target.value)} />
+                <Input size="small" allowClear prefix={<Search className="size-3.5 text-stone-400" />} placeholder={t("sidePanel.searchAssets")} value={keyword} onChange={(e) => setKeyword(e.target.value)} />
                 <button
                     type="button"
                     disabled={uploading}
@@ -352,14 +355,14 @@ const CanvasAssetsTab = memo(function CanvasAssetsTab({ onInsert, theme }: { onI
                     style={{ color: theme.node.text }}
                 >
                     <Plus className="size-3.5" />
-                    添加
+                    {t("sidePanel.add")}
                 </button>
                 <input ref={fileInputRef} type="file" accept="image/*,video/*" multiple className="hidden" onChange={(e) => void handleFiles(e.target.files)} />
             </div>
             {allTags.length ? (
                 <div className="flex flex-wrap gap-1.5 px-3 pb-2">
                     <Tag.CheckableTag checked={tagFilter === "all"} className={cn("prompt-filter-tag", tagFilter === "all" && "is-active")} onChange={() => setTagFilter("all")}>
-                        全部
+                        {t("sidePanel.all")}
                     </Tag.CheckableTag>
                     {allTags.map((tag) => (
                         <Tag.CheckableTag key={tag} checked={tagFilter === tag} className={cn("prompt-filter-tag", tagFilter === tag && "is-active")} onChange={() => setTagFilter((prev) => (prev === tag ? "all" : tag))}>
@@ -382,13 +385,13 @@ const CanvasAssetsTab = memo(function CanvasAssetsTab({ onInsert, theme }: { onI
                                     >
                                         <ChevronRight className={cn("size-3.5 transition-transform", !isCollapsed && "rotate-90")} />
                                         <group.icon className="size-3.5" />
-                                        <span>{group.label}</span>
+                                        <span>{t(`sidePanel.${group.kind}`)}</span>
                                         <span className="opacity-50">{group.items.length}</span>
                                     </button>
                                     {isCollapsed ? null : (
                                         <div className="grid grid-cols-2 gap-2 px-1 pb-2 pt-1">
                                             {group.items.map((asset) => (
-                                                <AssetCard key={asset.id} asset={asset} theme={theme} onInsert={() => onInsert(buildInsertPayload(asset))} onRemove={() => (removeAsset(asset.id), message.success("资产已移除"))} />
+                                                <AssetCard key={asset.id} asset={asset} theme={theme} onInsert={() => onInsert(buildInsertPayload(asset))} onRemove={() => (removeAsset(asset.id), message.success(t("sidePanel.removed")))} />
                                             ))}
                                         </div>
                                     )}
@@ -397,7 +400,7 @@ const CanvasAssetsTab = memo(function CanvasAssetsTab({ onInsert, theme }: { onI
                         })}
                     </div>
                 ) : (
-                    <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无资产" className="pt-16" />
+                    <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t("sidePanel.noAssets")} className="pt-16" />
                 )}
             </div>
         </div>
@@ -405,6 +408,7 @@ const CanvasAssetsTab = memo(function CanvasAssetsTab({ onInsert, theme }: { onI
 });
 
 function AssetCard({ asset, theme, onInsert, onRemove }: { asset: Asset; theme: CanvasTheme; onInsert: () => void; onRemove: () => void }) {
+    const { t } = useTranslation("canvas");
     return (
         <div className="group relative aspect-square overflow-hidden rounded-xl border transition duration-200 hover:-translate-y-0.5 hover:shadow-lg" style={{ borderColor: theme.node.stroke, background: theme.node.panel }}>
             <AssetCover asset={asset} />
@@ -413,15 +417,15 @@ function AssetCard({ asset, theme, onInsert, onRemove }: { asset: Asset; theme: 
                     type="button"
                     onClick={onInsert}
                     className="grid size-8 place-items-center rounded-full bg-white/90 text-stone-700 shadow-sm backdrop-blur transition hover:bg-white hover:text-stone-900 dark:bg-black/60 dark:text-stone-100 dark:hover:bg-black/80"
-                    aria-label="插入画布"
+                    aria-label={t("sidePanel.insertCanvas")}
                 >
                     <Plus className="size-4" />
                 </button>
-                <Popconfirm title="移除该资产?" okText="移除" cancelText="取消" okButtonProps={{ danger: true }} onConfirm={onRemove}>
+                <Popconfirm title={t("sidePanel.removeAssetConfirm")} okText={t("sidePanel.remove")} cancelText={t("sidePanel.cancel")} okButtonProps={{ danger: true }} onConfirm={onRemove}>
                     <button
                         type="button"
                         className="grid size-8 place-items-center rounded-full bg-white/90 text-stone-700 shadow-sm backdrop-blur transition hover:bg-white hover:text-red-500 dark:bg-black/60 dark:text-stone-100 dark:hover:bg-black/80 dark:hover:text-red-400"
-                        aria-label="移除资产"
+                        aria-label={t("sidePanel.removeAsset")}
                     >
                         <Trash2 className="size-4" />
                     </button>
@@ -445,6 +449,7 @@ function AssetCover({ asset }: { asset: Asset }) {
 // ---------------------------------------------------------------------------
 
 const CanvasPromptsTab = memo(function CanvasPromptsTab({ onInsert, theme }: { onInsert: (payload: InsertAssetPayload) => void; theme: CanvasTheme }) {
+    const { t } = useTranslation("canvas");
     const { message } = App.useApp();
     const sources = usePromptSourceStore((state) => state.sources);
     const enabledSources = useMemo(() => sources.filter((source) => source.enabled), [sources]);
@@ -455,16 +460,16 @@ const CanvasPromptsTab = memo(function CanvasPromptsTab({ onInsert, theme }: { o
     const copyPrompt = async (prompt: string) => {
         try {
             await navigator.clipboard.writeText(prompt);
-            message.success("已复制提示词");
+            message.success(t("sidePanel.promptCopied"));
         } catch {
-            message.error("复制失败");
+            message.error(t("sidePanel.copyFailed"));
         }
     };
 
     return (
         <div className="flex h-full flex-col">
             <div className="px-3 pb-2.5 pt-1">
-                <Input size="small" allowClear prefix={<Search className="size-3.5 text-stone-400" />} placeholder="搜索提示词" value={keyword} onChange={(e) => setKeyword(e.target.value)} />
+                <Input size="small" allowClear prefix={<Search className="size-3.5 text-stone-400" />} placeholder={t("sidePanel.searchPrompts")} value={keyword} onChange={(e) => setKeyword(e.target.value)} />
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
                 <div className="space-y-1">
@@ -480,7 +485,7 @@ const CanvasPromptsTab = memo(function CanvasPromptsTab({ onInsert, theme }: { o
                             onInsert={onInsert}
                             onView={setDetail}
                         />
-                    )) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无提示词" className="pt-12" />}
+                    )) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t("sidePanel.noPrompts")} className="pt-12" />}
                 </div>
             </div>
             <PromptDetailDialog prompt={detail} onClose={() => setDetail(null)} onCopy={(prompt) => void copyPrompt(prompt)} />
@@ -507,6 +512,7 @@ function PromptSourceGroup({
     onInsert: (payload: InsertAssetPayload) => void;
     onView: (prompt: Prompt) => void;
 }) {
+    const { t } = useTranslation("canvas");
     // 展开过一次即缓存,避免收起后重复请求;搜索命中时也需要拿到数据来计数。
     const showResults = open || !!keyword.trim();
     const query = useQuery({ queryKey: ["side-panel-prompts", sourceId], queryFn: () => fetchSourcePrompts(sourceId), enabled: showResults, staleTime: 1000 * 60 * 60 });
@@ -536,7 +542,7 @@ function PromptSourceGroup({
                         </div>
                     ) : query.isError ? (
                         <button type="button" onClick={() => void query.refetch()} className="block w-full py-4 text-center text-xs text-red-500 opacity-80 transition hover:opacity-100">
-                            加载失败,点击重试
+                            {t("sidePanel.loadFailedRetry")}
                         </button>
                     ) : filtered.length ? (
                         <div className="space-y-1.5">
@@ -545,7 +551,7 @@ function PromptSourceGroup({
                             ))}
                         </div>
                     ) : (
-                        <div className="py-4 text-center text-xs opacity-40">{keyword.trim() ? "无匹配提示词" : "该来源暂无提示词"}</div>
+                        <div className="py-4 text-center text-xs opacity-40">{t(keyword.trim() ? "sidePanel.noMatchingPrompts" : "sidePanel.sourceNoPrompts")}</div>
                     )}
                 </div>
             ) : null}
@@ -554,6 +560,7 @@ function PromptSourceGroup({
 }
 
 function PromptRow({ item, theme, onInsert, onView }: { item: Prompt; theme: CanvasTheme; onInsert: () => void; onView: () => void }) {
+    const { t } = useTranslation("canvas");
     return (
         <div className="group relative flex items-center gap-2.5 rounded-lg px-2 py-2 transition hover:bg-black/5 dark:hover:bg-white/5">
             {item.coverUrl ? (
@@ -568,7 +575,7 @@ function PromptRow({ item, theme, onInsert, onView }: { item: Prompt; theme: Can
                 <div className="mt-0.5 truncate text-xs leading-snug opacity-50">{item.prompt}</div>
             </button>
             <div className="flex shrink-0 flex-col items-center gap-0.5">
-                <button type="button" onClick={onView} className="grid size-6 place-items-center rounded-md opacity-60 transition hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/10" aria-label="查看详情" title="查看详情">
+                <button type="button" onClick={onView} className="grid size-6 place-items-center rounded-md opacity-60 transition hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/10" aria-label={t("sidePanel.viewDetails")} title={t("sidePanel.viewDetails")}>
                     <Eye className="size-3.5" />
                 </button>
                 <button
@@ -576,8 +583,8 @@ function PromptRow({ item, theme, onInsert, onView }: { item: Prompt; theme: Can
                     onClick={onInsert}
                     className="grid size-6 place-items-center rounded-md opacity-60 transition hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/10"
                     style={{ color: theme.toolbar.activeText }}
-                    aria-label="插入画布"
-                    title="插入画布"
+                    aria-label={t("sidePanel.insertCanvas")}
+                    title={t("sidePanel.insertCanvas")}
                 >
                     <Plus className="size-3.5" />
                 </button>
