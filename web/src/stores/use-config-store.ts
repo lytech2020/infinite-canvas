@@ -3,7 +3,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { nanoid } from "nanoid";
 
-export type ApiCallFormat = "openai" | "gemini" | "ark";
+export type ApiCallFormat = "openai" | "azure-openai" | "gemini" | "ark";
 export type ModelCapability = "image" | "video" | "text" | "audio";
 export type ReasoningEffort = "auto" | "low" | "medium" | "high" | "xhigh";
 
@@ -19,6 +19,7 @@ export type ModelChannel = {
     baseUrl: string;
     apiKey: string;
     apiFormat: ApiCallFormat;
+    azureApiVersion: string;
     models: ChannelModel[];
 };
 
@@ -27,6 +28,7 @@ export type AiConfig = {
     baseUrl: string;
     apiKey: string;
     apiFormat: ApiCallFormat;
+    azureApiVersion: string;
     channels: ModelChannel[];
     model: string;
     imageModel: string;
@@ -63,6 +65,8 @@ export type ConfigTabKey = "channels" | "preferences" | "prompt-sources" | "webd
 export const CONFIG_STORE_KEY = "infinite-canvas:ai_config_store";
 const CHANNEL_MODEL_SEPARATOR = "::";
 const OPENAI_BASE_URL = "https://api.openai.com";
+const AZURE_OPENAI_BASE_URL = "https://admin-6149-resource.services.ai.azure.com";
+const AZURE_OPENAI_API_VERSION = "preview";
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com";
 const ARK_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3";
 
@@ -71,6 +75,7 @@ export const defaultConfig: AiConfig = {
     baseUrl: OPENAI_BASE_URL,
     apiKey: "",
     apiFormat: "openai",
+    azureApiVersion: AZURE_OPENAI_API_VERSION,
     channels: [
         {
             id: "default",
@@ -78,6 +83,7 @@ export const defaultConfig: AiConfig = {
             baseUrl: OPENAI_BASE_URL,
             apiKey: "",
             apiFormat: "openai",
+            azureApiVersion: AZURE_OPENAI_API_VERSION,
             models: [
                 { name: "gpt-image-2", capability: "image" },
                 { name: "grok-imagine-video", capability: "video" },
@@ -229,6 +235,7 @@ export const useConfigStore = create<ConfigStore>()(
                         ...config,
                         channelMode: "local",
                         apiFormat: normalizeApiFormat(config.apiFormat),
+                        azureApiVersion: config.azureApiVersion || AZURE_OPENAI_API_VERSION,
                         channels,
                         models,
                         imageModel: normalizeModelOptionValue(config.imageModel || config.model, channels),
@@ -280,6 +287,7 @@ export function createModelChannel(channel?: Partial<ModelChannel>): ModelChanne
         baseUrl: channel?.baseUrl?.trim() || defaultBaseUrlForApiFormat(apiFormat),
         apiKey: channel?.apiKey || "",
         apiFormat,
+        azureApiVersion: channel?.azureApiVersion?.trim() || AZURE_OPENAI_API_VERSION,
         models: normalizeChannelModels(channel?.models),
     };
 }
@@ -340,6 +348,7 @@ export function resolveModelRequestConfig(config: AiConfig, value: string) {
         baseUrl: channel.baseUrl,
         apiKey: channel.apiKey,
         apiFormat: channel.apiFormat,
+        azureApiVersion: channel.azureApiVersion,
     };
 }
 
@@ -361,6 +370,7 @@ function normalizeChannels(config: AiConfig) {
                 baseUrl: config.baseUrl || defaultConfig.baseUrl,
                 apiKey: config.apiKey || "",
                 apiFormat: config.apiFormat || defaultConfig.apiFormat,
+                azureApiVersion: config.azureApiVersion || AZURE_OPENAI_API_VERSION,
                 models: normalizeChannelModels([config.model, config.imageModel, config.videoModel, config.textModel, config.audioModel].map(modelOptionName)),
             }),
         );
@@ -369,13 +379,14 @@ function normalizeChannels(config: AiConfig) {
 }
 
 export function defaultBaseUrlForApiFormat(apiFormat: ApiCallFormat) {
+    if (apiFormat === "azure-openai") return AZURE_OPENAI_BASE_URL;
     if (apiFormat === "gemini") return GEMINI_BASE_URL;
     if (apiFormat === "ark") return ARK_BASE_URL;
     return OPENAI_BASE_URL;
 }
 
 function normalizeApiFormat(apiFormat: unknown): ApiCallFormat {
-    return apiFormat === "gemini" || apiFormat === "ark" ? apiFormat : "openai";
+    return apiFormat === "azure-openai" || apiFormat === "gemini" || apiFormat === "ark" ? apiFormat : "openai";
 }
 
 function uniqueModelOptions(models: string[]) {
@@ -388,6 +399,25 @@ export function buildApiUrl(baseUrl: string, path: string) {
     const lowerBaseUrl = normalizedBaseUrl.toLowerCase();
     const apiBaseUrl = lowerBaseUrl.endsWith("/v1") || lowerBaseUrl.endsWith("/api/v3") || lowerBaseUrl.endsWith("/api/plan/v3") ? normalizedBaseUrl : `${normalizedBaseUrl}/v1`;
     return `${apiBaseUrl}${path}`;
+}
+
+export function buildModelApiUrl(config: Pick<AiConfig, "baseUrl" | "apiFormat" | "azureApiVersion">, path: string) {
+    if (config.apiFormat !== "azure-openai") return buildApiUrl(config.baseUrl, path);
+    const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+    const endpoint = config.baseUrl
+        .trim()
+        .replace(/\/+$/, "")
+        .replace(/\/openai(?:\/v1)?$/i, "");
+    const url = `${endpoint}/openai/v1${normalizedPath}`;
+    const apiVersion = config.azureApiVersion.trim() || AZURE_OPENAI_API_VERSION;
+    return `${url}${url.includes("?") ? "&" : "?"}api-version=${encodeURIComponent(apiVersion)}`;
+}
+
+export function buildModelApiHeaders(config: Pick<AiConfig, "apiKey" | "apiFormat">, contentType?: string) {
+    return {
+        ...(config.apiFormat === "azure-openai" ? { "api-key": config.apiKey } : { Authorization: `Bearer ${config.apiKey}` }),
+        ...(contentType ? { "Content-Type": contentType } : {}),
+    };
 }
 
 function normalizeArkPlanBaseUrl(baseUrl: string) {

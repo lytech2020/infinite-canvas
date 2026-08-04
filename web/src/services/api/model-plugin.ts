@@ -1,6 +1,6 @@
 import axios, { type AxiosRequestConfig } from "axios";
 
-import { buildApiUrl, type AiConfig, type ModelCapability } from "@/stores/use-config-store";
+import { buildModelApiHeaders, buildModelApiUrl, type AiConfig, type ModelCapability } from "@/stores/use-config-store";
 
 type RequestOptions = { signal?: AbortSignal };
 
@@ -38,7 +38,7 @@ function pluginHeaders(extra?: Record<string, string>, hasJsonBody = false): Rec
 
 function pluginUrl(config: AiConfig, path: string) {
     if (/^https?:/i.test(path)) return path;
-    return buildApiUrl(config.baseUrl, path.startsWith("/") ? path : `/${path}`);
+    return buildModelApiUrl(config, path.startsWith("/") ? path : `/${path}`);
 }
 
 function createPluginHttp(config: AiConfig, options?: RequestOptions): PluginHttp {
@@ -49,7 +49,7 @@ function createPluginHttp(config: AiConfig, options?: RequestOptions): PluginHtt
             url: pluginUrl(config, path),
             data: method === "post" ? body : undefined,
             params: opts?.params,
-            headers: pluginHeaders({ Authorization: `Bearer ${config.apiKey}`, ...opts?.headers }, method === "post" && !isForm && body !== undefined),
+            headers: pluginHeaders({ ...buildModelApiHeaders(config), ...opts?.headers }, method === "post" && !isForm && body !== undefined),
             responseType: opts?.responseType || "json",
             signal: options?.signal,
         });
@@ -172,7 +172,7 @@ export const PLUGIN_VARIABLES: PluginVariable[] = [
     { name: "apiKey", type: "string", desc: "渠道 API Key，请求头里自己带上" },
     { name: "systemPrompt", type: "string", desc: "系统提示词原文" },
     { name: "reasoningEffort", type: '"auto" | "low" | "medium" | "high" | "xhigh"', desc: "文本推理强度；auto 表示由脚本决定是否传递", capabilities: ["text"] },
-    { name: "http", type: "object", desc: "便捷请求：http.post(path, body, {headers,params,responseType})、http.get(path, opts)、http.url(path)；默认带 Authorization: Bearer apiKey，可用 headers 覆盖；path 相对时按 baseUrl 拼 /v1" },
+    { name: "http", type: "object", desc: "便捷请求：http.post(path, body, {headers,params,responseType})、http.get(path, opts)、http.url(path)；按渠道协议自动添加鉴权头和 API 路径，可用 headers 覆盖" },
     { name: "request", type: "function", desc: "原始请求 request({ method, url, headers, params, data, responseType })，不加任何默认头，鉴权头自己写；url 相对时按 baseUrl 拼接（不加 /v1）" },
     { name: "poll", type: "function", desc: "轮询 poll(request, extract, {intervalMs,timeoutMs})，extract 返回真值即结束" },
     { name: "sleep", type: "function", desc: "sleep(ms) 延时" },

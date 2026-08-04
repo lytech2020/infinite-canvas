@@ -5,7 +5,7 @@ import { dataUrlToFile } from "@/lib/image-utils";
 import { getMediaBlob, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { imageToDataUrl } from "@/services/image-storage";
 import { boolConfig, buildSeedancePromptText, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceVideoReferenceError, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
-import { buildApiUrl, modelOptionName, resolveModelRequestConfig, resolveModelScript, type AiConfig } from "@/stores/use-config-store";
+import { buildApiUrl, buildModelApiHeaders, buildModelApiUrl, modelOptionName, resolveModelRequestConfig, resolveModelScript, type AiConfig } from "@/stores/use-config-store";
 import { runModelPlugin } from "./model-plugin";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
@@ -32,14 +32,11 @@ export type VideoGenerationTaskState = { status: "pending" } | { status: "comple
 const pluginVideoResults = new Map<string, VideoGenerationResult>();
 
 function aiApiUrl(config: AiConfig, path: string) {
-    return buildApiUrl(config.baseUrl, path);
+    return buildModelApiUrl(config, path);
 }
 
 function aiHeaders(config: AiConfig, contentType?: string) {
-    return {
-        Authorization: `Bearer ${config.apiKey}`,
-        ...(contentType ? { "Content-Type": contentType } : {}),
-    };
+    return buildModelApiHeaders(config, contentType);
 }
 
 export async function requestVideoGeneration(config: AiConfig, prompt: string, references: ReferenceImage[] = [], videoReferences: ReferenceVideo[] = [], audioReferences: ReferenceAudio[] = [], options?: RequestOptions): Promise<VideoGenerationResult> {
@@ -136,12 +133,21 @@ async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: st
     const body = new FormData();
     body.append("model", modelOptionName(model));
     body.append("prompt", prompt);
-    body.append("seconds", normalizeVideoSeconds(config.videoSeconds));
+    body.append("seconds", config.apiFormat === "azure-openai" ? normalizeAzureVideoSeconds(config.videoSeconds) : normalizeVideoSeconds(config.videoSeconds));
     if (normalizeVideoSize(config.size)) body.append("size", normalizeVideoSize(config.size)!);
-    body.append("resolution_name", normalizeVideoResolution(config.vquality));
-    body.append("preset", "normal");
-    const files = await Promise.all(references.slice(0, 7).map(async (image) => dataUrlToFile({ ...image, dataUrl: await imageToDataUrl(image) })));
-    files.forEach((file) => body.append("input_reference[]", file));
+    if (config.apiFormat !== "azure-openai") {
+        body.append("resolution_name", normalizeVideoResolution(config.vquality));
+        body.append("preset", "normal");
+    }
+    const files = await Promise.all(
+        references.slice(0, config.apiFormat === "azure-openai" ? 1 : 7).map(async (image) => {
+            const dataUrl = await imageToDataUrl(image);
+            if (config.apiFormat !== "azure-openai") return dataUrlToFile({ ...image, dataUrl });
+            const [width, height] = (normalizeVideoSize(config.size) || "1280x720").split("x").map(Number);
+            return dataUrlToFile({ ...image, name: "input-reference.png", type: "image/png", dataUrl: await coverImageDataUrl(dataUrl, width, height) });
+        }),
+    );
+    files.forEach((file) => body.append(config.apiFormat === "azure-openai" ? "input_reference" : "input_reference[]", file));
     try {
         const created = unwrapVideoResponse((await axios.post<ApiVideoResponse>(aiApiUrl(config, "/videos"), body, { headers: aiHeaders(config), signal: options?.signal })).data);
         if (!created.id) throw new Error("视频接口没有返回任务 ID");
@@ -297,6 +303,36 @@ function assertVideoConfig(config: AiConfig, model: string) {
 function normalizeVideoSeconds(value: string) {
     const seconds = Math.floor(Number(value) || 6);
     return String(Math.max(1, Math.min(20, seconds)));
+}
+
+function normalizeAzureVideoSeconds(value: string) {
+    const seconds = Math.floor(Number(value) || 4);
+    return String(seconds <= 4 ? 4 : seconds <= 8 ? 8 : 12);
+}
+
+function coverImageDataUrl(dataUrl: string, width: number, height: number) {
+    return new Promise<string>((resolve, reject) => {
+        const image = new Image();
+        image.onload = () => {
+            const canvas = document.createElement("canvas");
+            canvas.width = width;
+            canvas.height = height;
+            const context = canvas.getContext("2d");
+            if (!context) {
+                reject(new Error("参考图尺寸处理失败"));
+                return;
+            }
+            const scale = Math.max(width / image.naturalWidth, height / image.naturalHeight);
+            const sourceWidth = width / scale;
+            const sourceHeight = height / scale;
+            const sourceX = (image.naturalWidth - sourceWidth) / 2;
+            const sourceY = (image.naturalHeight - sourceHeight) / 2;
+            context.drawImage(image, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, width, height);
+            resolve(canvas.toDataURL("image/png"));
+        };
+        image.onerror = () => reject(new Error("参考图读取失败，请重新上传"));
+        image.src = dataUrl;
+    });
 }
 
 function normalizeVideoSize(value: string) {

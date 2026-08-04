@@ -1,6 +1,6 @@
 import axios from "axios";
 
-import { buildApiUrl, resolveModelRequestConfig, resolveModelScript, type AiConfig, type ModelChannel } from "@/stores/use-config-store";
+import { buildModelApiHeaders, buildModelApiUrl, resolveModelRequestConfig, resolveModelScript, type AiConfig, type ModelChannel } from "@/stores/use-config-store";
 import { normalizePluginImages, runModelPlugin } from "./model-plugin";
 import { nanoid } from "nanoid";
 import { dataUrlToFile } from "@/lib/image-utils";
@@ -330,14 +330,11 @@ function withSystemPrompt(config: AiConfig, prompt: string) {
 }
 
 function aiApiUrl(config: AiConfig, path: string) {
-    return buildApiUrl(config.baseUrl, path);
+    return buildModelApiUrl(config, path);
 }
 
 function aiHeaders(config: AiConfig, contentType?: string) {
-    return {
-        Authorization: `Bearer ${config.apiKey}`,
-        ...(contentType ? { "Content-Type": contentType } : {}),
-    };
+    return buildModelApiHeaders(config, contentType);
 }
 
 function geminiBaseUrl(config: Pick<AiConfig, "baseUrl">) {
@@ -753,8 +750,7 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
                 ...(quality ? { quality } : {}),
                 ...(requestSize ? { size: requestSize } : {}),
                 ...(background ? { background } : {}),
-                response_format: "b64_json",
-                output_format: IMAGE_OUTPUT_FORMAT,
+                ...(requestConfig.apiFormat === "azure-openai" ? {} : { response_format: "b64_json", output_format: IMAGE_OUTPUT_FORMAT }),
             },
             {
                 headers: aiHeaders(requestConfig, "application/json"),
@@ -836,30 +832,46 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
     const quality = normalizeQuality(config.quality);
     const requestSize = resolveRequestSize(quality, config.size);
     const background = normalizeBackground(config.background);
-    const formData = new FormData();
-    formData.set("model", requestConfig.model);
-    formData.set("prompt", withSystemPrompt(requestConfig, requestPrompt));
-    formData.set("n", String(n));
-    formData.set("response_format", "b64_json");
-    formData.set("output_format", IMAGE_OUTPUT_FORMAT);
-    if (quality) {
-        formData.set("quality", quality);
-    }
-    if (requestSize) {
-        formData.set("size", requestSize);
-    }
-    if (background) {
-        formData.set("background", background);
-    }
     const files = await Promise.all(references.map(async (image) => dataUrlToFile({ ...image, dataUrl: await imageToDataUrl(image) })));
-    files.forEach((file) => formData.append("image", file));
-    if (mask) formData.set("mask", dataUrlToFile(mask));
+    // 多图编辑的字段名各家不一:官方与多数中转用 image[],少数只认重复的 image,先试前者再回退
+    const buildFormData = (imageField: string) => {
+        const formData = new FormData();
+        formData.set("model", requestConfig.model);
+        formData.set("prompt", withSystemPrompt(requestConfig, requestPrompt));
+        formData.set("n", String(n));
+        if (requestConfig.apiFormat !== "azure-openai") {
+            formData.set("response_format", "b64_json");
+            formData.set("output_format", IMAGE_OUTPUT_FORMAT);
+        }
+        if (quality) {
+            formData.set("quality", quality);
+        }
+        if (requestSize) {
+            formData.set("size", requestSize);
+        }
+        if (background) {
+            formData.set("background", background);
+        }
+        files.forEach((file) => formData.append(imageField, file));
+        if (mask) formData.set("mask", dataUrlToFile(mask));
+        return formData;
+    };
+
+    const postEdits = async (imageField: string) => {
+        const response = await axios.post<ImageApiResponse>(aiApiUrl(requestConfig, "/images/edits"), buildFormData(imageField), { headers: aiHeaders(requestConfig), signal: options?.signal });
+        return parseImagePayload(response.data);
+    };
 
     try {
-        const response = await axios.post<ImageApiResponse>(aiApiUrl(requestConfig, "/images/edits"), formData, { headers: aiHeaders(requestConfig), signal: options?.signal });
-        const images = parseImagePayload(response.data);
-        return images;
+        return await postEdits(files.length > 1 ? "image[]" : "image");
     } catch (error) {
+        if (files.length > 1 && !axios.isCancel(error)) {
+            try {
+                return await postEdits("image");
+            } catch (fallbackError) {
+                throw new Error(readAxiosError(fallbackError, "请求失败"));
+            }
+        }
         throw new Error(readAxiosError(error, "请求失败"));
     }
 }
@@ -902,7 +914,7 @@ export async function requestImageQuestion(config: AiConfig, messages: AiTextMes
     }
 }
 
-export async function fetchImageModels(config: Pick<AiConfig, "baseUrl" | "apiKey" | "apiFormat">) {
+export async function fetchImageModels(config: Pick<AiConfig, "baseUrl" | "apiKey" | "apiFormat" | "azureApiVersion">) {
     try {
         if (config.apiFormat === "gemini") {
             const response = await axios.get<GeminiPayload>(geminiApiUrl({ ...defaultGeminiConfig, ...config }), { headers: geminiHeaders({ ...defaultGeminiConfig, ...config }) });
@@ -912,11 +924,7 @@ export async function fetchImageModels(config: Pick<AiConfig, "baseUrl" | "apiKe
                 .filter((id): id is string => Boolean(id))
                 .sort((a, b) => a.localeCompare(b));
         }
-        const response = await axios.get<{ data?: Array<{ id?: string }>; error?: { message?: string } }>(buildApiUrl(config.baseUrl, "/models"), {
-            headers: {
-                Authorization: `Bearer ${config.apiKey}`,
-            },
-        });
+        const response = await axios.get<{ data?: Array<{ id?: string }>; error?: { message?: string } }>(buildModelApiUrl(config, "/models"), { headers: buildModelApiHeaders(config) });
         return (response.data.data || [])
             .map((model) => model.id)
             .filter((id): id is string => Boolean(id))
@@ -927,13 +935,14 @@ export async function fetchImageModels(config: Pick<AiConfig, "baseUrl" | "apiKe
 }
 
 export async function fetchChannelModels(channel: ModelChannel) {
-    return fetchImageModels({ baseUrl: channel.baseUrl, apiKey: channel.apiKey, apiFormat: channel.apiFormat });
+    return fetchImageModels({ baseUrl: channel.baseUrl, apiKey: channel.apiKey, apiFormat: channel.apiFormat, azureApiVersion: channel.azureApiVersion });
 }
 
-const defaultGeminiConfig: Pick<AiConfig, "baseUrl" | "apiKey" | "apiFormat" | "model" | "systemPrompt"> = {
+const defaultGeminiConfig: Pick<AiConfig, "baseUrl" | "apiKey" | "apiFormat" | "azureApiVersion" | "model" | "systemPrompt"> = {
     baseUrl: "https://generativelanguage.googleapis.com",
     apiKey: "",
     apiFormat: "gemini",
+    azureApiVersion: "preview",
     model: "",
     systemPrompt: "",
 };

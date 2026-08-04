@@ -126,7 +126,8 @@ export const CanvasNode = React.memo(function CanvasNode({
     const [isEditingContent, setIsEditingContent] = useState(false);
     const [isEditingTitle, setIsEditingTitle] = useState(false);
     const [titleDraft, setTitleDraft] = useState(data.title || "");
-    const hasImageContent = data.type === CanvasNodeType.Image && Boolean(data.metadata?.content);
+    // 重生成期间图片被 LoadingContent 顶替,此时不能再按「有图」渲染,否则背景与边框都透明,节点会看不见
+    const hasImageContent = data.type === CanvasNodeType.Image && Boolean(data.metadata?.content) && data.metadata?.status !== "loading";
     const hasVideoContent = data.type === CanvasNodeType.Video && Boolean(data.metadata?.content);
     const hasAudioContent = data.type === CanvasNodeType.Audio && Boolean(data.metadata?.content);
     const isGroup = data.type === CanvasNodeType.Group;

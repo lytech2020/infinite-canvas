@@ -4,7 +4,7 @@ import { Switch } from "antd";
 import { ImageSettingsTheme } from "@/components/image-settings-panel";
 import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceDurationOptions, seedancePixelLabel, seedanceRatioOptions, seedanceResolutionOptions } from "@/lib/seedance-video";
 import { type CanvasTheme } from "@/lib/canvas-theme";
-import { type AiConfig } from "@/stores/use-config-store";
+import { resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
 
 const resolutionOptions = [
     { value: "720", label: "720p" },
@@ -21,6 +21,7 @@ const sizeOptions = [
 ];
 
 const secondOptions = [6, 10, 12, 16, 20];
+const azureSecondOptions = [4, 8, 12];
 
 export const videoResolutionOptions = resolutionOptions.map((item) => ({ value: item.value, label: item.label }));
 export const videoSizeOptions = sizeOptions.map((item) => ({ value: item.value, label: item.label }));
@@ -39,7 +40,9 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
         return <SeedanceVideoSettingsPanel config={config} onConfigChange={onConfigChange} theme={theme} showTitle={showTitle} className={className} />;
     }
 
-    const seconds = config.videoSeconds || "6";
+    const isAzureOpenAI = resolveModelRequestConfig(config, config.model || config.videoModel).apiFormat === "azure-openai";
+    const seconds = isAzureOpenAI ? normalizeAzureVideoSecondsValue(config.videoSeconds) : config.videoSeconds || "6";
+    const activeSecondOptions = isAzureOpenAI ? azureSecondOptions : secondOptions;
     const size = normalizeVideoSizeValue(config.size);
     const dimensions = readSizeDimensions(size);
     const resolution = normalizeVideoResolutionValue(config.vquality);
@@ -91,12 +94,12 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
                 </SettingGroup>
                 <SettingGroup title="秒数" color={theme.node.muted}>
                     <div className="grid grid-cols-3 gap-2.5">
-                        {secondOptions.map((value) => (
+                        {activeSecondOptions.map((value) => (
                             <OptionPill key={value} selected={seconds === String(value)} theme={theme} onClick={() => onConfigChange("videoSeconds", String(value))}>
                                 {value}s
                             </OptionPill>
                         ))}
-                        <NumberInput value={seconds} min={1} max={20} theme={theme} onChange={(value) => onConfigChange("videoSeconds", value)} />
+                        {isAzureOpenAI ? null : <NumberInput value={seconds} min={1} max={20} theme={theme} onChange={(value) => onConfigChange("videoSeconds", value)} />}
                     </div>
                 </SettingGroup>
             </div>
@@ -175,9 +178,15 @@ export function videoSizeLabel(value: string) {
     return sizeOptions.find((item) => item.value === size)?.label || size;
 }
 
-export function videoSecondsLabel(value: string) {
+export function videoSecondsLabel(value: string, config?: AiConfig) {
     if (String(value).trim() === "-1") return "智能";
+    if (config && resolveModelRequestConfig(config, config.model || config.videoModel).apiFormat === "azure-openai") return `${normalizeAzureVideoSecondsValue(value)}s`;
     return `${value || "6"}s`;
+}
+
+function normalizeAzureVideoSecondsValue(value: string) {
+    const seconds = Math.floor(Number(value) || 4);
+    return String(seconds <= 4 ? 4 : seconds <= 8 ? 8 : 12);
 }
 
 export function normalizeVideoSizeValue(value: string) {

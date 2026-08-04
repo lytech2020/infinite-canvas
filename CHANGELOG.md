@@ -2,6 +2,13 @@
 
 ## Unreleased
 
++ [新增] 模型渠道支持 Azure OpenAI，可配置 Endpoint、API Key、API Version 和 Deployment Name。
++ [新增] 已生成的画布图片节点支持使用当前提示词原地重新生成并覆盖结果。
++ [修复] Azure OpenAI 视频生成不再发送不支持的 `resolution_name` 和 `preset` 参数，并按接口要求提交单张参考图。
++ [修复] Azure OpenAI Sora 视频时长限制为接口支持的 4、8、12 秒，并自动修正已有节点中的非法时长。
++ [修复] Azure OpenAI Sora 参考图在提交前自动裁剪缩放到请求尺寸，避免宽高不匹配导致生成失败。
++ [修复] 多参考图编辑在接口不接受 `image[]` 字段时自动回退到重复的 `image` 字段。
+
 ## v0.13.0 - 2026-08-03
 
 + [优化] Agent 进入空白对话或点击新对话后后台预热 Codex 与 MCP。

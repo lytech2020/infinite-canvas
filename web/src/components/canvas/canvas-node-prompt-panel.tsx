@@ -37,7 +37,6 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
     const config = buildNodeConfig(globalConfig, node, mode);
     const hasTextContent = node.type === CanvasNodeType.Text && Boolean(node.metadata?.content?.trim());
     const hasImageContent = node.type === CanvasNodeType.Image && Boolean(node.metadata?.content);
-    const isEditingExistingContent = hasTextContent || hasImageContent;
     const [prompt, setPrompt] = useState(node.metadata?.prompt || "");
 
     // 仅在切换到其它节点时恢复对应提示词;同一节点生成完成后继续保留当前输入。
@@ -48,7 +47,8 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
 
     const updatePrompt = (value: string) => {
         setPrompt(value);
-        if (!isEditingExistingContent) onPromptChange(node.id, value);
+        // 已有内容的节点同样写回:「重生成」读的是 metadata.prompt,不写回就会拿到上一轮的旧提示词
+        onPromptChange(node.id, value);
     };
 
     const submit = () => {

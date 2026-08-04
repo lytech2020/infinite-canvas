@@ -8,6 +8,7 @@ import { ModelSelectModal } from "./model-select-modal";
 
 const apiFormatOptions: Array<{ label: string; value: ApiCallFormat }> = [
     { label: "OpenAI", value: "openai" },
+    { label: "Azure OpenAI", value: "azure-openai" },
     { label: "Gemini", value: "gemini" },
     { label: "火山方舟", value: "ark" },
 ];
@@ -37,7 +38,7 @@ export function ChannelEditorDrawer({ open, channel, onSave, onClose }: { open: 
 
     const changeApiFormat = (apiFormat: ApiCallFormat) => {
         const baseUrl = !draft.baseUrl.trim() || draft.baseUrl.trim() === defaultBaseUrlForApiFormat(draft.apiFormat) ? defaultBaseUrlForApiFormat(apiFormat) : draft.baseUrl;
-        patch({ apiFormat, baseUrl });
+        patch({ apiFormat, baseUrl, ...(apiFormat === "azure-openai" && !draft.azureApiVersion.trim() ? { azureApiVersion: "preview" } : {}) });
     };
 
     const applySelection = (names: string[]) => {
@@ -80,14 +81,22 @@ export function ChannelEditorDrawer({ open, channel, onSave, onClose }: { open: 
                     <Select className="w-full" value={draft.apiFormat} options={apiFormatOptions} onChange={changeApiFormat} />
                 </label>
                 <label className="block md:col-span-2">
-                    <span className="mb-1 block text-sm font-medium">接口地址</span>
-                    <Input value={draft.baseUrl} onChange={(event) => patch({ baseUrl: event.target.value })} placeholder="https://api.example.com" />
+                    <span className="mb-1 block text-sm font-medium">{draft.apiFormat === "azure-openai" ? "Azure Endpoint" : "接口地址"}</span>
+                    <Input value={draft.baseUrl} onChange={(event) => patch({ baseUrl: event.target.value })} placeholder={draft.apiFormat === "azure-openai" ? "https://your-resource.services.ai.azure.com" : "https://api.example.com"} />
                 </label>
+                {draft.apiFormat === "azure-openai" ? (
+                    <label className="block md:col-span-2">
+                        <span className="mb-1 block text-sm font-medium">API Version</span>
+                        <Input value={draft.azureApiVersion} onChange={(event) => patch({ azureApiVersion: event.target.value })} placeholder="preview" />
+                    </label>
+                ) : null}
                 <label className="block md:col-span-2">
                     <span className="mb-1 block text-sm font-medium">API Key</span>
-                    <Input.Password value={draft.apiKey} onChange={(event) => patch({ apiKey: event.target.value })} placeholder="sk-..." />
+                    <Input.Password value={draft.apiKey} onChange={(event) => patch({ apiKey: event.target.value })} placeholder={draft.apiFormat === "azure-openai" ? "Azure OpenAI API Key" : "sk-..."} />
                 </label>
             </div>
+
+            {draft.apiFormat === "azure-openai" ? <div className="mt-3 text-xs text-stone-500">模型名称请填写 Azure 中创建的 Deployment Name。Endpoint、API Key 和模型配置仅保存在当前浏览器本地。</div> : null}
 
             <div className="mt-6 mb-3 flex flex-wrap items-center justify-between gap-2">
                 <div>

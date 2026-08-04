@@ -361,6 +361,7 @@ function withChannels(config: AiConfig, channels: ModelChannel[]): AiConfig {
         baseUrl: channels[0]?.baseUrl || config.baseUrl,
         apiKey: channels[0]?.apiKey || config.apiKey,
         apiFormat: channels[0]?.apiFormat || config.apiFormat,
+        azureApiVersion: channels[0]?.azureApiVersion || config.azureApiVersion,
     };
     return {
         ...next,
@@ -382,6 +383,7 @@ function normalizeImageCount(value: string) {
 }
 
 function apiFormatLabel(apiFormat: ApiCallFormat) {
+    if (apiFormat === "azure-openai") return "Azure OpenAI";
     if (apiFormat === "gemini") return "Gemini";
     if (apiFormat === "ark") return "火山方舟";
     return "OpenAI";
