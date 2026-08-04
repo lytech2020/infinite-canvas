@@ -36,6 +36,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
     useEffect(() => {
         document.documentElement.lang = locale;
+        document.title = i18n.getFixedT(locale, "common")("browserTitle");
         void i18n.changeLanguage(locale);
     }, [locale]);
 

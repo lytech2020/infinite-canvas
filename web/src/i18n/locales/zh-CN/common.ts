@@ -1,5 +1,6 @@
 export default {
     productName: "无限画布",
+    browserTitle: "无限画布",
     actions: {
         edit: "编辑",
         done: "完成",

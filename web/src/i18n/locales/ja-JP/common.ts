@@ -1,5 +1,6 @@
 export default {
     productName: "Infinite Canvas",
+    browserTitle: "キャンバス",
     actions: {
         edit: "編集",
         done: "完了",

@@ -41,10 +41,10 @@ export default {
     },
     audio: {
         title: "音声設定",
-        voice: "声",
+        voice: "ボイス",
         format: "形式",
         speed: "話速",
-        instructions: "音声指示",
+        instructions: "話し方の指示",
         instructionsPlaceholder: "例：自然で温かく、ナレーションに適した話し方。",
     },
     text: {

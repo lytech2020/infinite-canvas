@@ -186,8 +186,9 @@ export function CanvasNodeHoverToolbar({
     return (
         <>
             <div
-                className="absolute z-[70] flex h-12 -translate-x-1/2 -translate-y-full items-center overflow-visible rounded-[18px] border border-black/10 bg-white text-[15px] text-[#242529] shadow-[0_8px_28px_rgba(15,23,42,.12)]"
-                style={{ left, top }}
+                className="absolute left-0 top-0 z-[70] flex min-h-12 max-w-[min(820px,calc(100vw-32px))] flex-wrap items-center justify-start overflow-visible rounded-[18px] border border-black/10 bg-white text-[15px] text-[#242529] shadow-[0_8px_28px_rgba(15,23,42,.12)]"
+                // 偏移放在 transform 里:绝对定位用 left 时收缩宽度会被“容器宽 - left”限制,换行点会随节点位置变化
+                style={{ transform: `translate(${left}px, ${top}px) translate(-50%, -100%)` }}
                 onMouseEnter={() => onKeep(node.id)}
                 onMouseLeave={() => {
                     if (!imageToolSettingsOpen) onLeave();

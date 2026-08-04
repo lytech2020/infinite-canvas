@@ -428,8 +428,8 @@ export default function VideoPage() {
 
                         <div className="mt-6 space-y-5">
                             <div>
-                                <div className="mb-2 flex items-center justify-between gap-3">
-                                    <span className="text-base font-semibold">{t("prompt", { ns: "video" })}</span>
+                                <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
+                                    <span className="shrink-0 text-base font-semibold">{t("prompt", { ns: "video" })}</span>
                                     <div className="flex gap-2">
                                         <Button size="small" icon={<BookOpen className="size-3.5" />} onClick={() => setPromptDialogOpen(true)}>
                                             {t("promptLibrary", { ns: "video" })}
@@ -443,8 +443,8 @@ export default function VideoPage() {
                             </div>
 
                             <div className="min-w-0">
-                                <div className="mb-2 flex items-center justify-between gap-3">
-                                    <span className="text-base font-semibold">{t("imageReferences", { ns: "video" })}</span>
+                                <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
+                                    <span className="shrink-0 text-base font-semibold">{t("imageReferences", { ns: "video" })}</span>
                                     <div className="flex gap-2">
                                         <Button size="small" icon={<ClipboardPaste className="size-3.5" />} onClick={() => void addReferencesFromClipboard()}>
                                             {t("clipboard", { ns: "video" })}
@@ -479,8 +479,8 @@ export default function VideoPage() {
                             </div>
 
                             <div className="min-w-0">
-                                <div className="mb-2 flex items-center justify-between gap-3">
-                                    <span className="text-base font-semibold">{t("videoReferences", { ns: "video" })}</span>
+                                <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
+                                    <span className="shrink-0 text-base font-semibold">{t("videoReferences", { ns: "video" })}</span>
                                     <Button size="small" icon={<Upload className="size-3.5" />} onClick={() => fileInputRef.current?.click()}>
                                         {t("upload", { ns: "video" })}
                                     </Button>
@@ -510,8 +510,8 @@ export default function VideoPage() {
                             </div>
 
                             <div className="min-w-0">
-                                <div className="mb-2 flex items-center justify-between gap-3">
-                                    <span className="text-base font-semibold">{t("audioReferences", { ns: "video" })}</span>
+                                <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
+                                    <span className="shrink-0 text-base font-semibold">{t("audioReferences", { ns: "video" })}</span>
                                     <Button size="small" icon={<Upload className="size-3.5" />} onClick={() => fileInputRef.current?.click()}>
                                         {t("upload", { ns: "video" })}
                                     </Button>
