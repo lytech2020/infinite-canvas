@@ -4,7 +4,6 @@ import { App } from "antd";
 import { useTranslation } from "react-i18next";
 
 import { createModelChannel, useConfigStore } from "@/stores/use-config-store";
-import { usePromptSourceScheduler } from "@/hooks/use-prompt-source-scheduler";
 
 export function ClientRootInit({ children }: { children: ReactNode }) {
     const { t } = useTranslation("config");
@@ -13,8 +12,6 @@ export function ClientRootInit({ children }: { children: ReactNode }) {
     const updateConfig = useConfigStore((state) => state.updateConfig);
     const config = useConfigStore((state) => state.config);
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
-
-    usePromptSourceScheduler();
 
     useEffect(() => {
         if (handledConfigParams.current) return;

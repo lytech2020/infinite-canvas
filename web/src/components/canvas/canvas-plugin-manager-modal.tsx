@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { App, Button, Input, Modal, Popconfirm, Switch, Tabs } from "antd";
+import { App, Button, Modal, Popconfirm, Switch, Tabs } from "antd";
 import { AlertTriangle, Download, Puzzle, RefreshCw, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -14,8 +14,6 @@ export function CanvasPluginManagerModal({ open, onClose }: { open: boolean; onC
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const { message } = App.useApp();
     const plugins = usePluginStore((state) => state.plugins);
-    const [url, setUrl] = useState("");
-    const [installing, setInstalling] = useState(false);
     const [busyId, setBusyId] = useState<string | null>(null);
 
     const [official, setOfficial] = useState<OfficialPluginEntry[]>([]);
@@ -42,21 +40,6 @@ export function CanvasPluginManagerModal({ open, onClose }: { open: boolean; onC
     useEffect(() => {
         if (open && official.length === 0 && !loadingOfficial && !officialError) void loadOfficial();
     }, [open, official.length, loadingOfficial, officialError, loadOfficial]);
-
-    const handleInstallUrl = async () => {
-        const target = url.trim();
-        if (!target) return;
-        setInstalling(true);
-        try {
-            const plugin = await installPluginFromUrl(target);
-            message.success(t("plugins.installedPlugin", { name: plugin.name }));
-            setUrl("");
-        } catch (error) {
-            message.error(t("plugins.installFailed", { error: error instanceof Error ? error.message : String(error) }));
-        } finally {
-            setInstalling(false);
-        }
-    };
 
     const handleInstallOfficial = async (entry: OfficialPluginEntry) => {
         setBusyId(entry.id);
@@ -195,17 +178,7 @@ export function CanvasPluginManagerModal({ open, onClose }: { open: boolean; onC
 
     const localTab = <div className="thin-scrollbar max-h-[52vh] space-y-2 overflow-auto">{localPlugins.map((record) => row(record.id, <Puzzle className="size-4" />, record.name, record.version, record.description || record.url, installedControls(record)))}</div>;
 
-    const thirdPartyTab = (
-        <div className="space-y-3">
-            <div className="flex gap-2">
-                <Input placeholder={t("plugins.urlPlaceholder")} value={url} onChange={(event) => setUrl(event.target.value)} onPressEnter={handleInstallUrl} allowClear />
-                <Button type="primary" loading={installing} onClick={handleInstallUrl} icon={<Puzzle className="size-4" />}>
-                    {t("plugins.install")}
-                </Button>
-            </div>
-            <div className="thin-scrollbar max-h-[42vh] space-y-2 overflow-auto">{thirdPartyPlugins.length === 0 ? emptyHint(t("plugins.noThirdParty")) : thirdPartyPlugins.map((record) => row(record.id, <Puzzle className="size-4" />, record.name, record.version, record.description || record.url, installedControls(record)))}</div>
-        </div>
-    );
+    const thirdPartyTab = <div className="thin-scrollbar max-h-[52vh] space-y-2 overflow-auto">{thirdPartyPlugins.length === 0 ? emptyHint(t("plugins.noThirdParty")) : thirdPartyPlugins.map((record) => row(record.id, <Puzzle className="size-4" />, record.name, record.version, record.description || record.url, installedControls(record)))}</div>;
 
     const tabs = [
         { key: "official", label: t("plugins.official"), children: officialTab },

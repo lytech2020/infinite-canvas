@@ -97,7 +97,6 @@ export async function ensurePluginsLoaded() {
     if (loaded) return;
     loaded = true;
     await usePluginStore.persist.rehydrate();
-    await loadLocalPlugins(); // 先发现本地插件(默认关闭),再统一按 enabled 激活
     const records = usePluginStore.getState().plugins.filter((record) => record.enabled);
     await Promise.all(
         records.map(async (record) => {
@@ -110,7 +109,6 @@ export async function ensurePluginsLoaded() {
             }
         }),
     );
-    await loadDevPlugins();
 }
 
 // 自动发现 web/public/plugins 下的本地插件:加入列表但默认关闭,
