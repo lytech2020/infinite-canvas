@@ -3,17 +3,15 @@ import { useEffect, useRef } from "react";
 import { App } from "antd";
 import { useTranslation } from "react-i18next";
 
-import { useConfigStore } from "@/stores/use-config-store";
-import { usePromptSourceScheduler } from "@/hooks/use-prompt-source-scheduler";
+import { createModelChannel, useConfigStore } from "@/stores/use-config-store";
 
 export function ClientRootInit({ children }: { children: ReactNode }) {
+    const { t } = useTranslation("config");
     const { message } = App.useApp();
-    const { t } = useTranslation();
     const handledConfigParams = useRef(false);
-    const importChannelCredentials = useConfigStore((state) => state.importChannelCredentials);
+    const updateConfig = useConfigStore((state) => state.updateConfig);
+    const config = useConfigStore((state) => state.config);
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
-
-    usePromptSourceScheduler();
 
     useEffect(() => {
         if (handledConfigParams.current) return;
@@ -27,13 +25,26 @@ export function ClientRootInit({ children }: { children: ReactNode }) {
         searchParams.delete("apiKey");
         searchParams.delete("apikey");
         window.history.replaceState(null, "", `${window.location.pathname}${searchParams.size ? `?${searchParams}` : ""}${window.location.hash}`);
-        const result = importChannelCredentials({ baseUrl, apiKey });
-        openConfigDialog(false, "channels");
-        if (result.status === "created") message.success(t("config.importedChannelCreated", { name: result.channelName }));
-        else if (result.status === "updated") message.success(t("config.importedChannelUpdated", { name: result.channelName }));
-        else if (result.status === "missing-base-url") message.error(t("config.importedChannelBaseUrlRequired"));
-        else message.error(t("config.importedChannelBaseUrlInvalid"));
-    }, [importChannelCredentials, message, openConfigDialog, t]);
+        const firstChannel = config.channels[0];
+        updateConfig(
+            "channels",
+            firstChannel
+                ? config.channels.map((channel, index) =>
+                      index === 0
+                          ? {
+                                ...channel,
+                                ...(baseUrl ? { baseUrl } : {}),
+                                ...(apiKey ? { apiKey } : {}),
+                            }
+                          : channel,
+                  )
+                : [createModelChannel({ id: "default", name: t("defaultChannel"), baseUrl: baseUrl || undefined, apiKey: apiKey || "" })],
+        );
+        if (baseUrl) updateConfig("baseUrl", baseUrl);
+        if (apiKey) updateConfig("apiKey", apiKey);
+        openConfigDialog(false);
+        message.success(t("directImported"));
+    }, [config.channels, message, openConfigDialog, t, updateConfig]);
 
     return <>{children}</>;
 }
