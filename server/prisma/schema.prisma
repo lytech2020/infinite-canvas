@@ -1,0 +1,297 @@
+// 云端版后台数据模型。按阶段递增，本文件当前覆盖用户会话、系统设置、渠道模型和价格规则。
+
+generator client {
+    provider = "prisma-client-js"
+}
+
+datasource db {
+    provider = "postgresql"
+    url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+    user
+    admin
+}
+
+enum UserStatus {
+    active
+    disabled
+}
+
+model User {
+    id           String     @id @default(cuid())
+    email        String     @unique
+    passwordHash String     @map("password_hash")
+    role         UserRole   @default(user)
+    status       UserStatus @default(active)
+    createdAt    DateTime   @default(now()) @map("created_at")
+    updatedAt    DateTime   @updatedAt @map("updated_at")
+    lastActiveAt DateTime?  @map("last_active_at")
+    sessions     Session[]
+    projects     Project[]
+    jobs         GenerationJob[]
+    uploads      Upload[]
+
+    @@map("users")
+}
+
+model Session {
+    id         String    @id @default(cuid())
+    userId     String    @map("user_id")
+    tokenHash  String    @unique @map("token_hash")
+    expiresAt  DateTime  @map("expires_at")
+    createdAt  DateTime  @default(now()) @map("created_at")
+    lastUsedAt DateTime  @default(now()) @map("last_used_at")
+    revokedAt  DateTime? @map("revoked_at")
+    user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+    @@index([userId])
+    @@map("sessions")
+}
+
+/** 画布项目的最小记录。id 沿用前端生成的画布 ID，画布正文仍保存在浏览器。 */
+model Project {
+    id        String    @id
+    userId    String    @map("user_id")
+    name      String
+    createdAt DateTime  @default(now()) @map("created_at")
+    updatedAt DateTime  @updatedAt @map("updated_at")
+    // 软删除：画布删除后仍保留项目名称快照和历史用量关联
+    deletedAt DateTime? @map("deleted_at")
+    user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+    jobs      GenerationJob[]
+
+    @@index([userId, updatedAt])
+    @@map("projects")
+}
+
+enum ApiFormat {
+    openai
+    azure_openai
+    gemini
+    ark
+}
+
+enum ModelCapability {
+    text
+    image
+    video
+    audio
+}
+
+enum PricingType {
+    token
+    image
+    video
+    audio
+    fixed
+}
+
+/** AI 渠道。API Key 以 AES-256-GCM 密文保存，任何接口都不返回明文。 */
+model Provider {
+    id           String    @id @default(cuid())
+    name         String
+    apiFormat    ApiFormat @map("api_format")
+    baseUrl      String    @map("base_url")
+    apiKeyCipher String    @map("api_key_cipher")
+    apiVersion   String?   @map("api_version")
+    enabled      Boolean   @default(true)
+    createdAt    DateTime  @default(now()) @map("created_at")
+    updatedAt    DateTime  @updatedAt @map("updated_at")
+    models       Model[]
+
+    @@map("providers")
+}
+
+/** 模型。remoteName 为实际调用名称或 Azure Deployment Name，不下发给普通用户。 */
+model Model {
+    id             String          @id @default(cuid())
+    providerId     String          @map("provider_id")
+    displayName    String          @map("display_name")
+    remoteName     String          @map("remote_name")
+    capability     ModelCapability
+    // 用户可调参数定义，形如 { size: { type: "enum", values: [...], default: "..." } }
+    paramSchema    Json            @default("{}") @map("param_schema")
+    // 文件限制，形如 { image: { maxCount: 9, maxSizeMb: 20 } }
+    fileLimits     Json            @default("{}") @map("file_limits")
+    maxOutputCount Int?            @map("max_output_count")
+    // 该模型的全局最大并发，留空表示不限制
+    maxConcurrency Int?            @map("max_concurrency")
+    enabled        Boolean         @default(true)
+    isDefault      Boolean         @default(false) @map("is_default")
+    sortOrder      Int             @default(0) @map("sort_order")
+    createdAt      DateTime        @default(now()) @map("created_at")
+    updatedAt      DateTime        @updatedAt @map("updated_at")
+    provider       Provider        @relation(fields: [providerId], references: [id], onDelete: Restrict)
+    prices         ModelPrice[]
+    jobs           GenerationJob[]
+
+    @@index([providerId])
+    @@index([capability, enabled])
+    @@map("models")
+}
+
+/** 模型价格规则。历史结算按生效时间取快照，改价不影响已产生的费用。 */
+model ModelPrice {
+    id            String      @id @default(cuid())
+    modelId       String      @map("model_id")
+    // 第一阶段固定 USD
+    currency      String      @default("USD")
+    pricingType   PricingType @map("pricing_type")
+    // 各类计费单价，值统一用字符串保存以保持精度，结算时按高精度小数计算
+    unitPrices    Json        @map("unit_prices")
+    effectiveFrom DateTime    @map("effective_from")
+    effectiveTo   DateTime?   @map("effective_to")
+    createdById   String?     @map("created_by_id")
+    createdAt     DateTime    @default(now()) @map("created_at")
+    model         Model       @relation(fields: [modelId], references: [id], onDelete: Cascade)
+
+    @@index([modelId, effectiveFrom])
+    @@map("model_prices")
+}
+
+enum JobStatus {
+    queued
+    running
+    succeeded
+    failed
+    cancelled
+}
+
+enum JobSource {
+    canvas
+    image_workbench
+    video_workbench
+    other
+}
+
+/** 生成任务。同一用户下 requestId 唯一，重复提交返回已存在任务，不重复创建。 */
+model GenerationJob {
+    id                  String          @id @default(cuid())
+    requestId           String          @map("request_id")
+    userId              String          @map("user_id")
+    providerRequestId   String?         @map("provider_request_id")
+    projectId           String?         @map("project_id")
+    // 调用当时的项目名称快照，项目改名或删除后仍可追溯
+    projectNameSnapshot String?         @map("project_name_snapshot")
+    nodeId              String?         @map("node_id")
+    source              JobSource
+    modelId             String          @map("model_id")
+    capability          ModelCapability
+    // 用户最终提交的提示词原文，长期保存，不翻译不改写
+    promptText          String          @map("prompt_text")
+    params              Json            @default("{}")
+    status              JobStatus       @default(queued)
+    errorCode           String?         @map("error_code")
+    errorDetail         String?         @map("error_detail")
+    result              Json?
+    createdAt           DateTime        @default(now()) @map("created_at")
+    startedAt           DateTime?       @map("started_at")
+    finishedAt          DateTime?       @map("finished_at")
+    user                User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+    model               Model           @relation(fields: [modelId], references: [id], onDelete: Restrict)
+    project             Project?        @relation(fields: [projectId], references: [id], onDelete: SetNull)
+    usage               AiUsageRecord?
+
+    @@unique([userId, requestId])
+    @@index([userId, status])
+    @@index([userId, createdAt])
+    @@index([projectId, createdAt])
+    @@index([modelId, createdAt])
+    @@map("generation_jobs")
+}
+
+enum UsageSource {
+    /** 供应商响应中返回的真实用量 */
+    provider
+    /** 供应商未返回用量，由后台按 tokenizer 估算 */
+    estimated
+    /** 没有 Token 用量：失败或取消未计费，或按图片、视频、音频等媒体单位计费 */
+    none
+}
+
+/**
+ * 一次调用一条结算记录，`job_id` 唯一保证同一任务不会重复计费。
+ * 用户和项目的累计金额一律由本表聚合得出，不在用户表里维护无法追溯的手工数字。
+ */
+model AiUsageRecord {
+    id         String          @id @default(cuid())
+    jobId      String          @unique @map("job_id")
+    userId     String          @map("user_id")
+    projectId  String?         @map("project_id")
+    modelId    String          @map("model_id")
+    // 冗余能力与任务状态，便于按能力和成功/失败直接聚合，无需回表关联任务
+    capability ModelCapability
+    status     JobStatus
+    // 结算时复制的价格规则快照，之后改价不影响历史金额
+    priceSnapshot    Json?       @map("price_snapshot")
+    inputTokens      Int         @default(0) @map("input_tokens")
+    cachedTokens     Int         @default(0) @map("cached_tokens")
+    outputTokens     Int         @default(0) @map("output_tokens")
+    reasoningTokens  Int         @default(0) @map("reasoning_tokens")
+    totalTokens      Int         @default(0) @map("total_tokens")
+    // 非 Token 计费单位，形如 { images: 1, size: "1024x1024", videoSeconds: 5 }
+    mediaUnits       Json?       @map("media_units")
+    usageSource      UsageSource @map("usage_source")
+    usageEstimationMethod String? @map("usage_estimation_method")
+    tokenizerName    String?     @map("tokenizer_name")
+    tokenizerVersion String?     @map("tokenizer_version")
+    // 金额一律高精度小数，不使用浮点数累计
+    amountUsd        Decimal     @default(0) @map("amount_usd") @db.Decimal(18, 8)
+    // 金额计算过程，管理员可据此追溯每一项的单价、数量和小计
+    calculationDetail Json?      @map("calculation_detail")
+    createdAt        DateTime    @default(now()) @map("created_at")
+    job              GenerationJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+    @@index([userId, createdAt])
+    @@index([projectId, createdAt])
+    @@index([modelId, createdAt])
+    @@index([capability, createdAt])
+    @@map("ai_usage_records")
+}
+
+enum UploadStatus {
+    pending
+    ready
+}
+
+/** 上传文件的元数据。文件本体在对象存储，数据库只存引用。 */
+model Upload {
+    id         String       @id @default(cuid())
+    userId     String       @map("user_id")
+    storageKey String       @unique @map("storage_key")
+    mimeType   String       @map("mime_type")
+    size       Int
+    status     UploadStatus @default(pending)
+    expiresAt  DateTime?    @map("expires_at")
+    createdAt  DateTime     @default(now()) @map("created_at")
+    user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+    @@index([userId, createdAt])
+    @@index([status, expiresAt])
+    @@map("uploads")
+}
+
+/** 管理员操作审计，例如修改价格、停用账号、查看提示词。 */
+model AdminAuditLog {
+    id         String   @id @default(cuid())
+    adminId    String   @map("admin_id")
+    action     String
+    targetType String   @map("target_type")
+    targetId   String?  @map("target_id")
+    detail     Json?
+    createdAt  DateTime @default(now()) @map("created_at")
+
+    @@index([adminId, createdAt])
+    @@index([action, createdAt])
+    @@map("admin_audit_logs")
+}
+
+model AppSetting {
+    key       String   @id
+    value     Json
+    updatedAt DateTime @updatedAt @map("updated_at")
+
+    @@map("app_settings")
+}

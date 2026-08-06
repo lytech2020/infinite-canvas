@@ -41,6 +41,10 @@ function localPluginsManifest(): Plugin {
 export default defineConfig({
     base: process.env.VITE_BASE || "/",
     plugins: [react(), localPluginsManifest()],
+    server: {
+        // 开发期把 /api 代理到本地后台，前端始终按同源方式请求。
+        proxy: { "/api": { target: process.env.VITE_API_PROXY || "http://127.0.0.1:8787", changeOrigin: true } },
+    },
     resolve: {
         alias: {
             "@": resolve(webDir, "src"),

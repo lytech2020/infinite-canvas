@@ -5,7 +5,38 @@ services:
     ports:
       - "3000:3000"
     restart: unless-stopped
+    depends_on:
+      - server
     # 统计分析（可选，默认关闭）。每家一个独立变量，填了谁就启用谁，可同时启用多家：
     # environment:
     #   ANALYTICS_GA4_ID: G-XXXXXXXXXX                    # Google Analytics 4 衡量 ID
     #   ANALYTICS_BAIDU_ID: xxxxxxxxxxxxxxxxxxxxxxxxxxxx   # 百度统计站点 ID
+
+  # 云端版后台。nginx 通过服务名 server 反向代理 /api。
+  server:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    container_name: infinite-canvas-server
+    restart: unless-stopped
+    depends_on:
+      - db
+    environment:
+      DATABASE_URL: postgresql://infinite_canvas:infinite_canvas@db:5432/infinite_canvas
+      NODE_ENV: production
+      ADMIN_EMAIL: admin@example.com
+      ADMIN_PASSWORD: change-me-now
+
+  db:
+    image: postgres:16-alpine
+    container_name: infinite-canvas-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: infinite_canvas
+      POSTGRES_PASSWORD: infinite_canvas
+      POSTGRES_DB: infinite_canvas
+    volumes:
+      - db-data:/var/lib/postgresql/data
+
+volumes:
+  db-data:
