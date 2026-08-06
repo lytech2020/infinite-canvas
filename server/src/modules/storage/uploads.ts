@@ -1,0 +1,91 @@
+import { randomUUID } from "node:crypto";
+
+import { prisma } from "../../db.js";
+import { env } from "../../env.js";
+import { ApiError } from "../../http/response.js";
+import { headObject, presignDownload, presignUpload, putObject } from "./s3.js";
+
+/** 后台默认文件限制，模型配置了更严格的限制时以模型为准。 */
+export const FILE_LIMITS = {
+    image: { maxCount: 9, maxSizeMb: 20, mimePrefix: "image/" },
+    video: { maxCount: 3, maxSizeMb: 200, mimePrefix: "video/" },
+    audio: { maxCount: 3, maxSizeMb: 20, mimePrefix: "audio/" },
+} as const;
+
+export type FileKind = keyof typeof FILE_LIMITS;
+
+const EXTENSIONS: Record<string, string> = {
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/webp": ".webp",
+    "video/mp4": ".mp4",
+    "audio/mpeg": ".mp3",
+    "audio/wav": ".wav",
+};
+
+/** 按 MIME 判断文件类别；不属于图片、视频、音频的一律拒绝。 */
+export function fileKind(mimeType: string): FileKind {
+    const kind = (Object.keys(FILE_LIMITS) as FileKind[]).find((key) => mimeType.startsWith(FILE_LIMITS[key].mimePrefix));
+    if (!kind) throw new ApiError("FILE_TYPE_NOT_ALLOWED", "不支持的文件类型", { mimeType });
+    return kind;
+}
+
+function storageKey(userId: string, mimeType: string) {
+    const month = new Date().toISOString().slice(0, 7).replace("-", "");
+    return `uploads/${userId}/${month}/${randomUUID()}${EXTENSIONS[mimeType] || ""}`;
+}
+
+/** 申请限时上传地址；先按类型和大小校验，再签发只能用于该对象的地址。 */
+export async function createUpload(userId: string, mimeType: string, size: number) {
+    const limit = FILE_LIMITS[fileKind(mimeType)];
+    if (size > limit.maxSizeMb * 1024 * 1024) throw new ApiError("FILE_TOO_LARGE", "文件超过大小限制", { maxSizeMb: limit.maxSizeMb });
+
+    const key = storageKey(userId, mimeType);
+    const upload = await prisma.upload.create({
+        data: { userId, storageKey: key, mimeType, size, expiresAt: new Date(Date.now() + env.tempFileTtlHours * 3600 * 1000) },
+    });
+    return { upload, url: await presignUpload(key, mimeType, size), expiresInSeconds: env.uploadUrlTtlSeconds };
+}
+
+/** 确认上传完成；以对象存储中的真实大小和类型为准，不信任前端声明。 */
+export async function completeUpload(userId: string, uploadId: string) {
+    const upload = await prisma.upload.findUnique({ where: { id: uploadId } });
+    if (!upload || upload.userId !== userId) throw new ApiError("NOT_FOUND", "上传记录不存在");
+
+    const head = await headObject(upload.storageKey).catch(() => null);
+    if (!head) throw new ApiError("VALIDATION_FAILED", "尚未检测到已上传的文件");
+    const limit = FILE_LIMITS[fileKind(head.mimeType || upload.mimeType)];
+    if (head.size > limit.maxSizeMb * 1024 * 1024) throw new ApiError("FILE_TOO_LARGE", "文件超过大小限制", { maxSizeMb: limit.maxSizeMb });
+
+    return prisma.upload.update({ where: { id: upload.id }, data: { status: "ready", size: head.size, mimeType: head.mimeType || upload.mimeType } });
+}
+
+/** 校验生成请求引用的文件：必须属于当前用户、已上传完成，且数量不超限。 */
+export async function resolveJobFiles(userId: string, fileIds: string[]) {
+    if (!fileIds.length) return [];
+    const uploads = await prisma.upload.findMany({ where: { id: { in: fileIds }, userId, status: "ready" } });
+    if (uploads.length !== fileIds.length) throw new ApiError("NOT_FOUND", "引用的文件不存在或尚未上传完成");
+
+    const counts = new Map<FileKind, number>();
+    for (const upload of uploads) {
+        const kind = fileKind(upload.mimeType);
+        counts.set(kind, (counts.get(kind) || 0) + 1);
+    }
+    for (const [kind, count] of counts) {
+        if (count > FILE_LIMITS[kind].maxCount) throw new ApiError("FILE_COUNT_EXCEEDED", "文件数量超出限制", { kind, maxCount: FILE_LIMITS[kind].maxCount });
+    }
+    return uploads;
+}
+
+/** 保存生成结果到对象存储，返回可下发给前端的限时地址。 */
+export async function saveGeneratedFile(userId: string, jobId: string, body: Buffer, mimeType: string) {
+    const key = `outputs/${userId}/${jobId}/${randomUUID()}${EXTENSIONS[mimeType] || ""}`;
+    await putObject(key, body, mimeType);
+    return { storageKey: key, mimeType, size: body.length, url: await presignDownload(key) };
+}
+
+/** 清理超时仍未完成上传的临时文件记录。 */
+export async function cleanupExpiredUploads() {
+    const { count } = await prisma.upload.deleteMany({ where: { status: "pending", expiresAt: { lt: new Date() } } });
+    return count;
+}

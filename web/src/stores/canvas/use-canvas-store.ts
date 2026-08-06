@@ -3,6 +3,7 @@ import { persist, type PersistStorage, type StorageValue } from "zustand/middlew
 
 import { nanoid } from "nanoid";
 import { localForageStorage } from "@/lib/localforage-storage";
+import { deleteCloudProject, registerProject, renameCloudProject } from "@/services/api/projects";
 import type { CanvasBackgroundMode } from "@/lib/canvas-theme";
 import type { CanvasAssistantSession, CanvasConnection, CanvasNodeData, ViewportTransform } from "@/types/canvas";
 
@@ -59,6 +60,11 @@ const canvasStorage: PersistStorage<CanvasStore> = {
     removeItem: (name) => localForageStorage.removeItem(name),
 };
 
+/** 云端项目登记失败不影响本地画布；下次打开该画布时会再次登记。 */
+function syncCloudProject(task: Promise<void>) {
+    return task.catch(() => undefined);
+}
+
 export const useCanvasStore = create<CanvasStore>()(
     persist(
         (set, get) => ({
@@ -81,6 +87,7 @@ export const useCanvasStore = create<CanvasStore>()(
                     viewport: initialViewport,
                 };
                 set((state) => ({ projects: [project, ...state.projects] }));
+                void syncCloudProject(registerProject(id, title));
                 return id;
             },
             importProject: (source) => {
@@ -99,20 +106,26 @@ export const useCanvasStore = create<CanvasStore>()(
                     viewport: source.viewport || initialViewport,
                 };
                 set((state) => ({ projects: [project, ...state.projects] }));
+                void syncCloudProject(registerProject(project.id, project.title));
                 return project.id;
             },
             openProject: (id) => {
-                return get().projects.find((item) => item.id === id) || null;
+                const project = get().projects.find((item) => item.id === id) || null;
+                // 打开已有画布时确认后台项目存在，登记接口按 ID 幂等。
+                if (project) void syncCloudProject(registerProject(project.id, project.title));
+                return project;
             },
-            renameProject: (id, title) =>
+            renameProject: (id, title) => {
                 set((state) => ({
                     projects: state.projects.map((project) => (project.id === id ? { ...project, title: title.trim() || project.title, updatedAt: new Date().toISOString() } : project)),
-                })),
-            deleteProjects: (ids) =>
-                set((state) => {
-                    const projects = state.projects.filter((project) => !ids.includes(project.id));
-                    return { projects };
-                }),
+                }));
+                const renamed = get().projects.find((project) => project.id === id);
+                if (renamed) void syncCloudProject(renameCloudProject(id, renamed.title));
+            },
+            deleteProjects: (ids) => {
+                set((state) => ({ projects: state.projects.filter((project) => !ids.includes(project.id)) }));
+                ids.forEach((id) => void syncCloudProject(deleteCloudProject(id)));
+            },
             replaceProjects: (projects) => set({ projects }),
             updateProject: (id, patch) =>
                 set((state) => ({

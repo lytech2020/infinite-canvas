@@ -82,5 +82,19 @@ export default {
     pluginMissingFields: "插件缺少 id 或 nodes",
     downloadFailedHttp: "下载失败（HTTP {{status}}）",
     syncManifestInvalid: "{{domain}} 同步清单不是当前应用的数据", promptRequestFailed: "请求失败（{{status}}）", jsonUrlRequired: "JSON URL 不能为空", promptFetchFailed: "「{{name}}」拉取失败：{{message}}", promptEmptyParsed: "「{{name}}」未解析到有效提示词", promptRootArray: "「{{name}}」格式错误：根节点必须是数组", agentRequestFailed: "本地 Agent 请求失败", versionReadFailed: "版本读取失败", changelogReadFailed: "更新日志读取失败", officialPluginsFailed: "获取官方插件列表失败（HTTP {{status}}）",
+    // 云端后台稳定错误代码，前端只按代码取文案，不解析后台 message。
+    backend: {
+        NETWORK_ERROR: "无法连接服务，请检查网络后重试",
+        VALIDATION_FAILED: "提交的内容不合法，请检查后重试",
+        AUTH_REQUIRED: "请先登录后再使用生成功能",
+        INVALID_CREDENTIALS: "邮箱或密码错误",
+        EMAIL_ALREADY_EXISTS: "该邮箱已注册，请直接登录",
+        REGISTRATION_CLOSED: "当前未开放自助注册，请联系管理员",
+        ACCOUNT_DISABLED: "当前账号已停用，请联系管理员",
+        FORBIDDEN: "没有权限执行该操作",
+        NOT_FOUND: "内容不存在或已被删除",
+        RATE_LIMITED: "操作过于频繁，请稍后重试",
+        INTERNAL_ERROR: "服务出错了，请稍后重试",
+    },
     unknownTool: "未知工具：{{name}}", canvasLoading: "画布还在加载中，请稍后重试", assetsLoading: "资产还在加载中，请稍后重试", assetTitleRequired: "请提供资产标题 title", assetTextRequired: "kind=text 时需要提供 content 文本内容", assetImageRequired: "kind=image 时需要提供 imageUrl（图片地址或 dataURL）", assetImageUnreadable: "无法读取该图片地址，请改用 dataURL 或可跨域访问的图片链接", assetKindUnsupported: "assets_add 仅支持 kind=text 或 kind=image",
 } as const;

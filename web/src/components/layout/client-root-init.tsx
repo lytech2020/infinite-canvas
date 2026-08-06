@@ -4,6 +4,7 @@ import { App } from "antd";
 import { useTranslation } from "react-i18next";
 
 import { createModelChannel, useConfigStore } from "@/stores/use-config-store";
+import { useUserStore } from "@/stores/use-user-store";
 
 export function ClientRootInit({ children }: { children: ReactNode }) {
     const { t } = useTranslation("config");
@@ -12,6 +13,12 @@ export function ClientRootInit({ children }: { children: ReactNode }) {
     const updateConfig = useConfigStore((state) => state.updateConfig);
     const config = useConfigStore((state) => state.config);
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
+    const restoreSession = useUserStore((state) => state.restoreSession);
+
+    // 启动时恢复云端登录状态，未登录时静默保持匿名。
+    useEffect(() => {
+        void restoreSession();
+    }, [restoreSession]);
 
     useEffect(() => {
         if (handledConfigParams.current) return;

@@ -197,9 +197,6 @@ PDF 需求要求保留插件入口。
 
 ## 15. 暂不处理
 
-- 积分和额度展示。
-- 会员套餐和支付页面。
-- 团队与项目协作。
 - 提示词商城或提示词翻译。
 - 本地 Agent 的云端替代品。
 - 完整画布和素材云同步。
@@ -229,6 +226,23 @@ PDF 需求要求保留插件入口。
 - 已移除任意插件 URL 输入安装入口，并停止自动发现本地开发插件和环境变量开发插件。
 - 已保留插件管理、主题、快捷键、画布导入导出和素材导入导出。
 
+### 已完成：登录与管理员入口（第二阶段）
+
+- 新增 `/login` 登录与注册页，沿用现有 stone 扁平风格，注册入口按后台 `registration_open` 开关显示。
+- 新增顶部用户菜单：未登录显示登录入口，已登录显示邮箱、退出登录，管理员额外显示管理后台入口。
+- 应用启动时通过 `GET /api/v1/auth/me` 恢复登录状态，未登录保持匿名，不打断现有本地功能。
+- 新增 `/admin/users` 管理页，支持邮箱搜索、分页、启用和停用账号，并由 `RequireAdmin` 守卫非管理员访问。
+- 新增统一后台请求层：同源 Cookie 会话、统一 `{ data }` / `{ error }` 解析、稳定错误代码转中日文案。
+- 新增 `auth` 中日文案命名空间，并在 `errors` 中新增 `backend.*` 错误代码文案。
+- 本阶段未改动任何现有 AI 生成路径，浏览器直连供应商和 Azure OpenAI 支持保持原样。
+- 涉及文件：`web/src/services/api/backend.ts`、`web/src/services/api/auth.ts`、`web/src/stores/use-user-store.ts`、`web/src/pages/login/index.tsx`、`web/src/pages/admin/users/index.tsx`、`web/src/components/layout/user-menu.tsx`、`web/src/components/layout/require-admin.tsx`、`web/src/components/layout/app-top-nav.tsx`、`web/src/components/layout/client-root-init.tsx`、`web/src/router.tsx`、`web/src/i18n/**`、`web/vite.config.ts`、`web/src/vite-env.d.ts`。
+
+### 已完成：画布项目登记（第四阶段）
+
+- 画布创建、导入、打开、重命名和删除时自动同步后台最小项目记录，删除为软删除，历史用量和名称快照保留。
+- 云端登记失败不影响本地画布操作；未登录时跳过登记，登记前会先等待一次会话恢复，避免刷新后漏登记。
+- 涉及文件：`web/src/services/api/projects.ts`、`web/src/stores/canvas/use-canvas-store.ts`。
+
 ### 暂时保留：等待后台后再替换
 
 - 配置导航、`/config` 路由、渠道、Base URL、API Key、API Version、Deployment Name和模型脚本继续保留，否则当前 AI 生成功能无法使用。
@@ -254,14 +268,14 @@ PDF 需求要求保留插件入口。
 - [x] 删除提示词库、Agent、文档、版本和 GitHub 导航入口。
 - [x] 关闭 `/prompts` 路由。
 - [ ] 后台模型接入后删除配置导航并关闭 `/config` 路由。
-- [ ] 增加登录用户和管理员入口。
+- [x] 增加登录用户和管理员入口。
 
 ### 画布
 
 - [x] 删除 Agent 状态、按钮、面板和自动连接逻辑。
 - [x] 删除画布侧边栏提示词库。
 - [x] 保留插件、当前设置、主题和快捷键。
-- [ ] 创建、重命名和删除画布时同步最小项目记录。
+- [x] 创建、重命名和删除画布时同步最小项目记录。
 
 ### 设置
 

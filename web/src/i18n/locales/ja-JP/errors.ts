@@ -8,5 +8,18 @@ export default {
     pluginMissingFields: "プラグインに id または nodes がありません",
     downloadFailedHttp: "ダウンロードに失敗しました（HTTP {{status}}）",
     syncManifestInvalid: "{{domain}} の同期一覧はこのアプリのデータではありません", promptRequestFailed: "リクエストに失敗しました（{{status}}）", jsonUrlRequired: "JSON URL を入力してください", promptFetchFailed: "「{{name}}」の取得に失敗しました：{{message}}", promptEmptyParsed: "「{{name}}」から有効なプロンプトを読み取れませんでした", promptRootArray: "「{{name}}」の形式が不正です：ルートは配列である必要があります", agentRequestFailed: "ローカル Agent リクエストに失敗しました", versionReadFailed: "バージョンの取得に失敗しました", changelogReadFailed: "更新履歴の取得に失敗しました", officialPluginsFailed: "公式プラグイン一覧の取得に失敗しました（HTTP {{status}}）",
+    backend: {
+        NETWORK_ERROR: "サービスに接続できません。ネットワークを確認してください",
+        VALIDATION_FAILED: "入力内容が正しくありません。確認してください",
+        AUTH_REQUIRED: "生成機能を利用するにはログインしてください",
+        INVALID_CREDENTIALS: "メールアドレスまたはパスワードが正しくありません",
+        EMAIL_ALREADY_EXISTS: "このメールアドレスは登録済みです。ログインしてください",
+        REGISTRATION_CLOSED: "現在、新規登録は受け付けていません。管理者にお問い合わせください",
+        ACCOUNT_DISABLED: "このアカウントは停止されています。管理者にお問い合わせください",
+        FORBIDDEN: "この操作を行う権限がありません",
+        NOT_FOUND: "対象が存在しないか削除されています",
+        RATE_LIMITED: "操作が多すぎます。しばらくしてからお試しください",
+        INTERNAL_ERROR: "サーバーエラーが発生しました。後でもう一度お試しください",
+    },
     unknownTool: "不明なツール：{{name}}", canvasLoading: "キャンバスを読み込み中です。後でもう一度お試しください", assetsLoading: "アセットを読み込み中です。後でもう一度お試しください", assetTitleRequired: "アセットタイトル title を指定してください", assetTextRequired: "kind=text の場合は content テキストが必要です", assetImageRequired: "kind=image の場合は imageUrl（画像 URL または dataURL）が必要です", assetImageUnreadable: "画像 URL を読み込めません。dataURL または CORS でアクセス可能な画像 URL を使用してください", assetKindUnsupported: "assets_add は kind=text または kind=image のみ対応しています",
 } as const;
