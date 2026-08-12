@@ -25,6 +25,7 @@ export default {
         plugins: "ノードプラグイン",
         docs: "ドキュメント",
         config: "設定",
+        language: "言語を切り替える",
         shortcuts: "ショートカット",
         lightTheme: "ライトテーマに切り替える",
         darkTheme: "ダークテーマに切り替える",

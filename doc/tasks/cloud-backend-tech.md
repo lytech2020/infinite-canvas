@@ -1,6 +1,6 @@
 # 云端版后台技术方案与接口契约
 
-状态：第一阶段方案，待确认后进入编码
+状态：实施中；核心接口、四类生成网关和管理后台界面已完成，待联调与部署准备
 
 本文件是 [云端版最小后台](cloud-backend.md) 需求的技术落地方案，负责回答“用什么、放哪里、接口长什么样”。需求范围仍以 `cloud-backend.md` 为准，前端改造范围以 `cloud-frontend.md` 为准。
 
@@ -56,7 +56,7 @@ server/
       catalog/            # 渠道、模型、价格
       projects/
       generation/         # 任务编排、并发保护、供应商适配
-      providers/          # openai / azure-openai / gemini / ark 适配器
+      providers/          # openai / azure-openai / ark 适配器；gemini 原生协议待后续接入
       usage/              # Token 归一化、估算、价格快照、金额结算
       storage/            # S3 预签名与清理
     lib/
@@ -87,7 +87,7 @@ server/
 
 | 表 | 关键字段 | 说明 |
 | --- | --- | --- |
-| `users` | `id`, `email`(唯一), `password_hash`, `role`(`user`/`admin`), `status`(`active`/`disabled`), `concurrency_limit`, `created_at`, `last_active_at` | 角色和启用状态在此判定 |
+| `users` | `id`, `email`(唯一), `password_hash`, `role`、`status`、`daily_call_limit`、`monthly_budget_usd`、`concurrency_limit`、`video_concurrency_limit`、`created_at`、`last_active_at` | 空调用/金额限额表示不限，空并发限额表示继承系统默认值 |
 | `sessions` | `id`, `user_id`, `token_hash`(唯一), `expires_at`, `created_at`, `last_used_at`, `revoked_at` | 会话可撤销，停用用户即时失效 |
 | `projects` | `id`(前端生成的画布 ID), `user_id`, `name`, `created_at`, `updated_at`, `deleted_at` | 软删除，历史用量不受影响 |
 | `providers` | `id`, `name`, `api_format`, `base_url`, `api_key_cipher`, `api_version`, `extra`(JSONB), `enabled` | `api_key_cipher` 为 AES-256-GCM 密文，任何接口都不返回明文 |
@@ -110,6 +110,8 @@ server/
 - Cookie：`ic_session`，`HttpOnly`、`SameSite=Lax`、生产环境 `Secure`，有效期 30 天，使用中滑动续期。
 - 登录状态恢复：前端启动调用 `GET /api/v1/auth/me`，未登录返回 `AUTH_REQUIRED`。
 - 退出登录：撤销当前会话并清 Cookie。
+- 修改密码：再次校验当前密码，更新后保留当前浏览器并撤销该用户的其他会话。
+- 登录、注册和修改密码共享 15 分钟 20 次的凭据尝试限制，超限返回 `RATE_LIMITED`。
 - 停用用户：`users.status = disabled` 并撤销其全部会话，后续请求返回 `ACCOUNT_DISABLED`。
 - 管理接口统一经过 `requireAdmin` 中间件校验 `role = admin`。
 - 初始管理员由 `prisma/seed.ts` 按 `ADMIN_EMAIL` / `ADMIN_PASSWORD` 创建，不做“首个注册用户自动成为管理员”。
@@ -122,7 +124,7 @@ server/
 - 预签名有效期 5 分钟，签名时绑定 `Content-Type` 与 `Content-Length`，`storage_key` 形如 `uploads/{user_id}/{yyyymm}/{upload_id}{ext}`。
 - 上传完成后调用 `POST /api/v1/uploads/{id}/complete`，后台核对对象大小与 MIME，置为 `ready`。
 - 生成请求只提交 `fileIds`，后台校验归属、状态、类型、数量和总大小。
-- 未被任务引用的 `pending` 上传超过 24 小时由定时清理任务删除。
+- 临时上传超过 24 小时后由后台每小时清理一次，对象存储文件与数据库记录同步删除；生成结果暂不自动删除。
 - 图片、视频、音频和 base64 大数据一律不写入数据库。
 
 ## 6. API 契约
@@ -159,6 +161,7 @@ server/
 | POST | `/api/v1/auth/login` | 登录并下发会话 Cookie |
 | POST | `/api/v1/auth/logout` | 退出登录 |
 | GET | `/api/v1/auth/me` | 当前用户，用于登录状态恢复 |
+| POST | `/api/v1/auth/password` | 校验当前密码并修改密码，撤销其他会话 |
 | GET | `/api/v1/models` | 已启用模型（脱敏），含展示名称、能力、参数范围和文件限制 |
 | POST | `/api/v1/projects` | 登记画布项目，按 `id` 幂等 upsert |
 | GET | `/api/v1/projects/{id}` | 确认项目存在 |
@@ -237,7 +240,9 @@ server/
 | --- | --- | --- |
 | GET | `/admin/overview` | 用量与金额概览 |
 | GET | `/admin/users` | 用户列表，支持邮箱搜索 |
+| POST | `/admin/users` | 管理员添加普通启用用户 |
 | PATCH | `/admin/users/{id}/status` | 启用或停用 |
+| PATCH | `/admin/users/{id}/limits` | 设置每日调用、每月金额及普通/视频并发限额 |
 | GET | `/admin/users/{id}/projects` | 用户项目列表与累计 Token、金额 |
 | GET | `/admin/usage` | 调用明细，支持用户、项目、模型、能力、状态、时间和 `usageSource` 筛选 |
 | GET | `/admin/usage/export.csv` | 导出不含提示词正文的用量 CSV |
@@ -269,6 +274,7 @@ server/
 | `VALIDATION_FAILED` | 400 | 请求参数不合法 |
 | `AUTH_REQUIRED` | 401 | 未登录或会话过期 |
 | `INVALID_CREDENTIALS` | 401 | 邮箱或密码错误 |
+| `CURRENT_PASSWORD_INVALID` | 401 | 修改密码时当前密码错误 |
 | `EMAIL_ALREADY_EXISTS` | 409 | 邮箱已注册 |
 | `REGISTRATION_CLOSED` | 403 | 已关闭自助注册 |
 | `ACCOUNT_DISABLED` | 403 | 账号已停用 |
@@ -277,6 +283,8 @@ server/
 | `DUPLICATE_REQUEST` | 409 | `requestId` 重复，返回已存在任务 |
 | `JOB_NOT_CANCELABLE` | 409 | 任务已结束，无法取消 |
 | `CONCURRENCY_LIMIT` | 429 | 用户同时运行任务过多 |
+| `DAILY_CALL_LIMIT` | 429 | 账户当日调用次数已用完 |
+| `MONTHLY_BUDGET_LIMIT` | 429 | 账户本月已结算金额达到上限 |
 | `RATE_LIMITED` | 429 | 请求过于频繁 |
 | `FILE_TOO_LARGE` | 413 | 文件超过大小限制，`details` 返回允许值 |
 | `FILE_TYPE_NOT_ALLOWED` | 415 | 文件类型不支持 |
@@ -310,12 +318,14 @@ server/
 | `S3_ACCESS_KEY_ID` | 是 | - | 访问密钥 |
 | `S3_SECRET_ACCESS_KEY` | 是 | - | 访问密钥 |
 | `S3_FORCE_PATH_STYLE` | 否 | `true` | MinIO 需要开启 |
-| `S3_PUBLIC_BASE_URL` | 否 | `https://cdn.example.com` | 生成对外可访问地址 |
 | `UPLOAD_URL_TTL_SECONDS` | 否 | `300` | 预签名有效期 |
+| `DOWNLOAD_URL_TTL_SECONDS` | 否 | `3600` | 结果限时下载地址有效期 |
 | `TEMP_FILE_TTL_HOURS` | 否 | `24` | 临时文件保留时间 |
 | `USER_MAX_CONCURRENT_JOBS` | 否 | `2` | 用户并发上限默认值 |
 | `USER_MAX_CONCURRENT_VIDEO_JOBS` | 否 | `1` | 用户视频并发上限 |
+| `QUOTA_TIMEZONE` | 否 | `Asia/Tokyo` | 每日和每月账户限额的重置时区 |
 | `PROVIDER_TIMEOUT_MS` | 否 | `120000` | 供应商请求超时 |
+| `PROVIDER_VIDEO_TIMEOUT_MS` | 否 | `900000` | 视频供应商任务超时 |
 | `LOG_LEVEL` | 否 | `info` | 日志级别 |
 
 ### web
@@ -328,39 +338,39 @@ server/
 
 ## 9. 本地开发启动方式
 
-1. 启动依赖服务：
+1. 从示例创建根目录配置：
 
 ```bash
-docker compose -f docker-compose.dev.yml up -d
+cp .env.example .env
 ```
 
-该文件只包含 `postgres` 和 `minio`，用于本地开发。
-
-2. 初始化后台：
+2. 使用生产 Compose 与本地覆盖文件启动全部服务：
 
 ```bash
-cd server && cp .env.example .env && bun install && bunx prisma migrate dev && bunx prisma db seed
+docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
 ```
 
-3. 启动后台：
+本地覆盖文件增加 MinIO、bucket 初始化和后台 `8787` 端口映射；PostgreSQL 与 MinIO 数据分别保存在 Docker volume 中。后台容器启动时自动执行 `prisma migrate deploy`。
+
+3. 首次启动创建管理员和可选初始渠道：
 
 ```bash
-cd server && bun run dev
+docker compose -f docker-compose.yml -f docker-compose.local.yml exec server node dist/prisma/seed.js
 ```
 
-4. 启动前端（Vite 已将 `/api` 代理到 `http://localhost:8787`）：
+4. 打开前端与对象存储控制台：
 
-```bash
-cd web && bun run dev
-```
+- 前端：`http://localhost:3000`
+- 后端健康接口：`http://localhost:8787/api/v1/health`
+- MinIO 控制台：`http://localhost:9001`
 
-按 AGENTS.md 约定，开发过程中不由 AI 执行构建和测试命令，上述命令供人工执行。
+只有开发 Prisma schema 时才在宿主机使用 `npm run migrate:dev -- --name <name>` 生成新迁移；日常启动不再分别运行前端和后台开发服务器。
 
 ## 10. 分阶段落地顺序
 
 与用户确认的阶段一致，本方案对应的编码顺序为：用户与管理员 → 渠道模型价格 → 画布项目登记 → 生成网关（文本、图片、音频、视频） → Token 与成本 → 文件与对象存储 → 前端完整接入 → 管理后台 → 清理与部署准备。
 
-迁移期间前端保留浏览器直连供应商路径，直到后台对应能力可用后再逐项删除，确保 Azure OpenAI 支持和中日多语言不被破坏。
+迁移期间曾保留浏览器直连供应商源码；四类后台能力接通后，普通用户入口与运行时回退均已关闭，Azure OpenAI 改由后台渠道配置调用，中日多语言保持不变。
 
 ## 11. 待确认项
 
@@ -377,9 +387,11 @@ cd web && bun run dev
 - 第三阶段：`providers` / `models` / `model_prices` / `admin_audit_logs` 四表，渠道密钥 AES-256-GCM 加密，模型能力、参数范围、文件限制和并发配置，价格规则与生效时间，`/api/v1/admin/providers`、`/api/v1/admin/models`、`/api/v1/models` 接口。
 
 - 第六阶段：`ai_usage_records` 表与 `UsageSource` 枚举，Token 归一化与 tokenizer 估算，价格快照与 `Decimal(18,8)` 金额结算，`/api/v1/admin/overview`、`/api/v1/admin/usage`（含 `export.csv`、`summary`）、`/api/v1/admin/users/{id}`、`/api/v1/admin/users/{id}/projects`、`/api/v1/admin/prompts` 接口。价格规则的 `unit_prices` 在原有字段基础上增加 `perImageByVariant`（按「尺寸」或「尺寸:质量」区分）和 `perVideoSecondByResolution`。
+- 第九阶段：前端新增统一管理后台布局及数据总览、用量明细、用户项目、提示词分析、渠道、模型和价格管理页面，直接接入第六阶段与目录管理接口。
+- 第十阶段：模型参数、单次输出数量和模型级文件限制在任务创建前强制校验；音频记录实际秒数；OpenAI 与 Azure OpenAI 视频参考图统一按单张目标尺寸提交；任务幂等、用户与模型并发通过事务锁保护，成功状态、结果和用量费用在同一事务提交；修改密码、凭据频率限制、自助注册后台开关、临时上传定时清理以及生产 Compose 已补齐。
 
-第四阶段起按第 10 节顺序继续补齐数据表和接口。
+第四至第十阶段的项目登记、四类生成网关、Token 与成本、对象存储、前端完整接入和管理后台均已落地并完成一轮静态 review，下一步以本地人工联调为主。
 
-当前 `server/.env.example` 只包含已实现能力所需的变量：`SECRET_ENCRYPTION_KEY` 已随第三阶段补入，`S3_*` 等变量随第七阶段实现时再补。
+当前 `server/.env.example` 已包含数据库、会话、密钥加密、上传限制、任务轮询和 S3 兼容对象存储所需变量；生产对象存储供应商仍按第 11 节待确认。
 
 部署和初始化步骤见 [云端版部署与初始化说明](../cloud-deploy.md)。

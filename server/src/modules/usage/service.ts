@@ -11,8 +11,12 @@ export type SettleInput = {
     providerUsage?: Record<string, unknown>;
     /** 用于估算的输出文本，仅文本能力需要。 */
     outputText?: string;
+    /** 完整输入文本；供应商未返回 usage 时用于估算多轮消息，而不是只估最后一条提示词。 */
+    inputText?: string;
     media?: MediaUnits;
 };
+
+export type SucceededJob = { providerRequestId?: string; result: unknown };
 
 /**
  * 文本以外的能力没有 Token 可估算，供应商不返回就如实记为 0 并标记 `none`，金额改由媒体计费单位决定；
@@ -21,37 +25,39 @@ export type SettleInput = {
 function resolveUsage(job: GenerationJob & { model: { remoteName: string } }, input: SettleInput): NormalizedUsage {
     const provider = normalizeProviderTokens(input.providerUsage);
     if (provider) return { tokens: provider, source: "provider" };
-    if (job.capability === "text") return estimateTokens(job.model.remoteName, job.promptText, input.outputText ?? "");
+    if (job.capability === "text") return estimateTokens(job.model.remoteName, input.inputText ?? job.promptText, input.outputText ?? "");
     return { tokens: emptyTokens, source: "none" };
 }
 
 /**
- * 结算一次调用并写入用量记录。
- * `job_id` 唯一，重复结算直接返回既有记录，保证同一任务不会重复计费；
- * 结算失败只记录日志，不影响任务本身已经产出的结果。
+ * 把任务成功状态、生成结果和用量记录放在同一事务中提交。
+ * 只有仍为 running 的任务可以成功，取消任务不会被供应商的迟到结果覆盖。
  */
-export async function settleJob(jobId: string, input: SettleInput) {
-    try {
-        const existing = await prisma.aiUsageRecord.findUnique({ where: { jobId } });
-        if (existing) return existing;
+export async function settleSucceededJob(jobId: string, input: SettleInput, succeeded: SucceededJob) {
+    const job = await prisma.generationJob.findUnique({ where: { id: jobId }, include: { model: true } });
+    if (!job) return false;
+    const usage = resolveUsage(job, input);
+    const rule = await resolvePrice(job.modelId, job.createdAt);
+    const media = input.media ?? {};
+    const result = rule ? settle(rule, usage.tokens, media) : { amountUsd: new Prisma.Decimal(0), lines: [] };
+    if (!rule) logger.warn("模型缺少生效中的价格规则，本次调用金额记为 0", { jobId, modelId: job.modelId });
 
-        const job = await prisma.generationJob.findUnique({ where: { id: jobId }, include: { model: true } });
-        if (!job) return null;
-
-        const usage = resolveUsage(job, input);
-        const rule = await resolvePrice(job.modelId, job.createdAt);
-        const media = input.media ?? {};
-        const result = rule ? settle(rule, usage.tokens, media) : { amountUsd: new Prisma.Decimal(0), lines: [] };
-        if (!rule) logger.warn("模型缺少生效中的价格规则，本次调用金额记为 0", { jobId, modelId: job.modelId });
-
-        return await prisma.aiUsageRecord.create({
+    return prisma.$transaction(async (tx) => {
+        const existing = await tx.aiUsageRecord.findUnique({ where: { jobId } });
+        if (existing) return existing.status === "succeeded";
+        const updated = await tx.generationJob.updateMany({
+            where: { id: jobId, status: "running" },
+            data: { status: "succeeded", finishedAt: new Date(), providerRequestId: succeeded.providerRequestId ?? null, result: toJson(succeeded.result) },
+        });
+        if (!updated.count) return false;
+        await tx.aiUsageRecord.create({
             data: {
                 jobId: job.id,
                 userId: job.userId,
                 projectId: job.projectId,
                 modelId: job.modelId,
                 capability: job.capability,
-                status: job.status,
+                status: "succeeded",
                 // 快照价格规则本身，之后管理员改价不会改变这条历史金额
                 priceSnapshot: rule ? toJson({ priceId: rule.id, pricingType: rule.pricingType, currency: rule.currency, unitPrices: rule.unitPrices, effectiveFrom: rule.effectiveFrom }) : Prisma.DbNull,
                 inputTokens: usage.tokens.inputTokens,
@@ -68,10 +74,8 @@ export async function settleJob(jobId: string, input: SettleInput) {
                 calculationDetail: toJson({ lines: result.lines, priceRuleMissing: !rule }),
             },
         });
-    } catch (error) {
-        logger.error("写入用量结算记录失败", { jobId, message: error instanceof Error ? error.message : String(error) });
-        return null;
-    }
+        return true;
+    });
 }
 
 /**

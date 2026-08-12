@@ -8,6 +8,8 @@ import { buildImageReferencePromptText } from "@/lib/image-reference-prompt";
 import { imageToDataUrl } from "@/services/image-storage";
 import type { ReferenceImage } from "@/types/image";
 import { errorText } from "@/i18n/error-text";
+import { decodeCloudModelId } from "@/stores/use-cloud-model-store";
+import { lastUserPrompt, messageImages, runCloudGeneration, textMessages, type CloudGenerationContext } from "./generations";
 
 export type AiTextMessage = {
     role: "system" | "user" | "assistant";
@@ -92,7 +94,7 @@ type GeminiPayload = {
     promptFeedback?: { blockReason?: string };
 };
 type GeminiStreamState = { buffer: string; text: string; toolCalls: ResponseToolCall[]; error?: string };
-type RequestOptions = { signal?: AbortSignal };
+type RequestOptions = { signal?: AbortSignal; cloud?: CloudGenerationContext };
 
 const QUALITY_BASE: Record<string, number> = {
     low: 1024,
@@ -706,6 +708,28 @@ function parseGeminiImagePayload(payload: GeminiPayload) {
 }
 
 export async function requestGeneration(config: AiConfig, prompt: string, options?: RequestOptions) {
+    const selectedModel = config.model || config.imageModel;
+    const cloudModelId = decodeCloudModelId(selectedModel);
+    if (!cloudModelId) throw new Error(errorText("cloudModelRequired"));
+    if (cloudModelId) {
+        const quality = normalizeQuality(config.quality);
+        const requestSize = resolveRequestSize(quality, config.size);
+        const background = normalizeBackground(config.background);
+        const job = await runCloudGeneration({
+            ...options?.cloud,
+            modelId: cloudModelId,
+            capability: "image",
+            prompt: withSystemPrompt(config, prompt),
+            params: {
+                count: Math.max(1, Math.min(15, Math.floor(Math.abs(Number(config.count)) || 1))),
+                ...(quality ? { quality } : {}),
+                ...(requestSize ? { size: requestSize } : {}),
+                ...(background ? { background } : {}),
+            },
+            signal: options?.signal,
+        });
+        return (job.result?.files || []).map((file) => ({ id: nanoid(), dataUrl: file.url }));
+    }
     const requestConfig = resolveModelRequestConfig(config, config.model || config.imageModel);
     const n = Math.max(1, Math.min(15, Math.floor(Math.abs(Number(config.count)) || 1)));
     const script = resolveModelScript(config, config.model || config.imageModel);
@@ -763,6 +787,30 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
 }
 
 export async function requestEdit(config: AiConfig, prompt: string, references: ReferenceImage[], mask?: ReferenceImage, options?: RequestOptions) {
+    const selectedModel = config.model || config.imageModel;
+    const cloudModelId = decodeCloudModelId(selectedModel);
+    if (!cloudModelId) throw new Error(errorText("cloudModelRequired"));
+    if (cloudModelId) {
+        const quality = normalizeQuality(config.quality);
+        const requestSize = resolveRequestSize(quality, config.size);
+        const background = normalizeBackground(config.background);
+        const job = await runCloudGeneration({
+            ...options?.cloud,
+            modelId: cloudModelId,
+            capability: "image",
+            prompt: withSystemPrompt(config, buildImageReferencePromptText(prompt, references)),
+            references,
+            mask,
+            params: {
+                count: Math.max(1, Math.min(15, Math.floor(Math.abs(Number(config.count)) || 1))),
+                ...(quality ? { quality } : {}),
+                ...(requestSize ? { size: requestSize } : {}),
+                ...(background ? { background } : {}),
+            },
+            signal: options?.signal,
+        });
+        return (job.result?.files || []).map((file) => ({ id: nanoid(), dataUrl: file.url }));
+    }
     const requestConfig = resolveModelRequestConfig(config, config.model || config.imageModel);
     const n = Math.max(1, Math.min(15, Math.floor(Math.abs(Number(config.count)) || 1)));
     const requestPrompt = buildImageReferencePromptText(prompt, references);
@@ -875,6 +923,24 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
 }
 
 export async function requestImageQuestion(config: AiConfig, messages: AiTextMessage[], onDelta: (text: string) => void, options?: RequestOptions) {
+    const selectedModel = config.model || config.textModel;
+    const cloudModelId = decodeCloudModelId(selectedModel);
+    if (!cloudModelId) throw new Error(errorText("cloudModelRequired"));
+    if (cloudModelId) {
+        const preparedMessages = withSystemMessage(config, messages).filter((message): message is AiTextMessage => !("type" in message) && message.role !== "tool");
+        const job = await runCloudGeneration({
+            ...options?.cloud,
+            modelId: cloudModelId,
+            capability: "text",
+            prompt: lastUserPrompt(preparedMessages),
+            references: messageImages(preparedMessages),
+            params: { messages: textMessages(preparedMessages), ...(config.reasoningEffort === "auto" ? {} : { reasoningEffort: config.reasoningEffort }) },
+            signal: options?.signal,
+        });
+        const answer = job.result?.text?.trim() || errorText("emptyResponse");
+        onDelta(answer);
+        return answer;
+    }
     const requestConfig = resolveModelRequestConfig(config, config.model || config.textModel);
     const script = resolveModelScript(config, config.model || config.textModel);
     if (script) {

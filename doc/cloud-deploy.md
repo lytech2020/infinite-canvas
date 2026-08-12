@@ -17,119 +17,84 @@
 
 ## 2. 本地开发
 
-### 2.1 启动数据库
-
-有 Docker 时：
+本地统一使用 Docker Compose 启动前端、后台、PostgreSQL 和 MinIO。首次使用先复制配置，并把示例密码和密钥改为仅本机使用的值：
 
 ```bash
-docker compose -f docker-compose.dev.yml up -d
-```
-
-该文件只包含 PostgreSQL，账号密码库名均为 `infinite_canvas`，数据保存在 `db-data` 卷中。
-
-没有 Docker 时（macOS + Homebrew），直接装本机 PostgreSQL：
-
-```bash
-brew install postgresql@16 && brew services start postgresql@16
-```
-
-再建角色和数据库，保持与默认 `DATABASE_URL` 一致。其中 `CREATEDB` 权限是 Prisma 迁移创建影子数据库所必需的，缺少会报 `P3014`：
-
-```bash
-/opt/homebrew/opt/postgresql@16/bin/psql -d postgres -c "CREATE ROLE infinite_canvas LOGIN PASSWORD 'infinite_canvas' CREATEDB;"
+cp .env.example .env
 ```
 
 ```bash
-/opt/homebrew/opt/postgresql@16/bin/createdb -O infinite_canvas infinite_canvas
+docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
 ```
 
-本地对象存储没有 Docker 时，用 Homebrew 起 MinIO：
+`docker-compose.local.yml` 会启动 MinIO、等待其健康并自动创建 `infinite-canvas` bucket；后台容器启动时自动执行 `prisma migrate deploy`。首次启动后执行一次 seed 创建管理员和可选初始 Azure OpenAI 渠道：
 
 ```bash
-brew install minio && mkdir -p /opt/homebrew/var/minio/infinite-canvas
+docker compose -f docker-compose.yml -f docker-compose.local.yml exec server node dist/prisma/seed.js
 ```
+
+本地配置统一放在根目录 `.env`：`DATABASE_URL` 使用服务名 `db`，`S3_ENDPOINT` 使用服务名 `minio`，每日与每月账户限额按 `QUOTA_TIMEZONE` 重置。`.env` 不提交到 Git。
+
+停止服务但保留数据库和对象存储数据：
 
 ```bash
-MINIO_ROOT_USER=infinite_canvas MINIO_ROOT_PASSWORD=infinite_canvas /opt/homebrew/opt/minio/bin/minio server --address=:9000 --console-address=:9001 /opt/homebrew/var/minio
+docker compose -f docker-compose.yml -f docker-compose.local.yml down
 ```
 
-MinIO 单机模式下，数据目录里的一级目录就是 bucket，所以上面 `mkdir` 那一步等价于建好了 `infinite-canvas` 桶。
-
-### 2.2 初始化后台
-
-```bash
-cd server && cp .env.example .env && bun install
-```
-
-编辑 `server/.env`，至少确认这几项：
-
-- `DATABASE_URL`：默认指向上一步的本地库，通常无需修改。
-- `SECRET_ENCRYPTION_KEY`：渠道 API Key 的加密主密钥，必须是 32 字节的 base64，用下面的命令生成后填入。
-- `ADMIN_EMAIL` / `ADMIN_PASSWORD`：初始管理员账号，登录后请立即修改密码。
-- `S3_*`：对象存储连接信息，默认值对应上面的本地 MinIO。生产换成 S3 / R2 时通常要把 `S3_FORCE_PATH_STYLE` 改为 `false`。
-- `AZURE_OPENAI_*`（可选）：填写后 seed 会自动创建初始渠道和模型，密钥加密写入数据库。部署名用逗号分隔并以 `部署名:能力` 指定能力，例如 `gpt-5.6-sol:text,gpt-image-2:image,sora-2:video`；省略能力时按 `text` 处理。渠道建好后即可在管理接口维护，不再依赖这些变量。
-
-```bash
-node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
-```
-
-### 2.3 建表并创建管理员
-
-首次执行会在 `server/prisma/migrations/` 下生成迁移文件，之后要提交进 Git：
-
-```bash
-cd server && bunx prisma migrate dev --name init && bunx prisma db seed
-```
-
-后续修改 `server/prisma/schema.prisma` 后，同样用 `bunx prisma migrate dev --name <本次改动名>` 生成新迁移，不要手改已生成的迁移文件。
-
-### 2.4 启动服务
-
-```bash
-cd server && bun run dev
-```
-
-```bash
-cd web && bun run dev
-```
-
-前端开发服务器已把 `/api` 代理到 `http://127.0.0.1:8787`，浏览器访问 `http://localhost:3000` 即可。需要连别的后台时设置 `VITE_API_PROXY`。
-
-### 2.5 验证
+### 2.1 验证
 
 - 打开 `http://localhost:3000/login`，用 `ADMIN_EMAIL` 登录。
-- 顶部用户菜单应出现「管理后台」入口，进入 `/admin/users` 能看到用户列表。
+- 顶部用户菜单应出现「管理后台」入口，进入 `/admin` 能看到数据总览；账号菜单中的「修改密码」可替换初始密码。
 - `curl http://localhost:8787/api/v1/health` 返回 `{"data":{"ok":true}}`。
+- MinIO 控制台位于 `http://localhost:9001`。
 
 ## 3. 服务器部署
 
 ### 3.1 使用 docker compose
 
-`docker-compose.yml` 已包含 `app`（前端）、`server`（后台）和 `db` 三个服务。部署前必须修改：
+`docker-compose.yml` 已包含 `app`（前端）、`server`（后台）和 `db` 三个服务，前后端都会从当前代码构建，不再引用远端 `latest` 镜像。对象存储使用外部 S3 兼容服务。部署前先执行 `cp .env.example .env`，然后至少修改 `POSTGRES_PASSWORD`、`DATABASE_URL`、`SECRET_ENCRYPTION_KEY`、`ADMIN_EMAIL`、`ADMIN_PASSWORD` 和全部 `S3_*`。
 
-- `server.environment` 中的 `ADMIN_EMAIL`、`ADMIN_PASSWORD`。
-- `server.environment` 增加 `SECRET_ENCRYPTION_KEY`，值用 2.2 的命令生成。
-- `db` 的 `POSTGRES_PASSWORD`，并同步修改 `DATABASE_URL`。
-
-建议把这些值写进服务器上的 `.env` 文件，再在 compose 中用 `${VAR}` 引用，不要直接提交明文。
+`POSTGRES_PASSWORD` 与 `DATABASE_URL` 中的密码必须一致；密码包含特殊字符时要在 URL 中进行百分号编码。`.env` 已被 Git 忽略，不要提交真实值。
 
 ```bash
 docker compose up -d --build
 ```
 
-后台容器启动时会自动执行 `prisma migrate deploy`，所以 `server/prisma/migrations/` 必须已随代码提交。首次部署后手动执行一次 seed 创建管理员：
+后台容器启动时会自动执行 `prisma migrate deploy`，所以 `server/prisma/migrations/` 必须已随代码提交。首次部署后执行一次 seed 创建管理员和可选初始 Azure OpenAI 渠道：
 
 ```bash
-docker compose exec server npx prisma db seed
+docker compose exec server node dist/prisma/seed.js
 ```
 
-### 3.2 反向代理与 HTTPS
+随后登录并从账号菜单修改初始密码。修改成功后，当前浏览器保持登录，其他设备上的旧会话会立即失效。
+
+### 3.2 对象存储 CORS
+
+浏览器会使用后台签发的限时地址直接上传参考文件，因此 bucket 必须允许站点域名跨域执行 `PUT`、`GET` 和 `HEAD`。以下为通用示例，部署时把域名替换为实际 HTTPS 域名：
+
+```json
+[
+  {
+    "AllowedOrigins": ["https://canvas.example.com"],
+    "AllowedMethods": ["GET", "PUT", "HEAD"],
+    "AllowedHeaders": ["*"],
+    "ExposeHeaders": ["ETag"],
+    "MaxAgeSeconds": 3600
+  }
+]
+```
+
+同时需要提前创建 `S3_BUCKET` 指定的 bucket；bucket 不应开放公共读取，生成结果统一使用后台签发的限时下载地址。
+
+### 3.3 反向代理与 HTTPS
 
 `nginx.conf` 中 `/api` 通过 Docker 内置 DNS 解析服务名 `server`，使用变量延迟解析，因此后台未启动时只影响 `/api`，不会导致前端容器起不来。
 
 生产环境必须使用 HTTPS：会话 Cookie 在 `NODE_ENV=production` 下带 `Secure` 属性，纯 HTTP 访问会导致登录后立即掉线。如果外层还有一层网关，需要透传 `X-Forwarded-Proto`。
 
-### 3.3 前后端分域部署
+当前前端产物按站点根路径 `/` 构建，生产建议使用独立域名或根路径部署，不要直接挂载到 `/canvas-app/` 等子目录。
+
+### 3.4 前后端分域部署
 
 默认前后端同源，无需 CORS。若必须分域：
 
@@ -149,6 +114,7 @@ docker compose exec server npx prisma db seed
 - 所有业务数据在 PostgreSQL 中，备份 `db-data` 卷或使用 `pg_dump` 即可。
 - 渠道 API Key 以 AES-256-GCM 密文保存，`SECRET_ENCRYPTION_KEY` 丢失后无法解密，必须与数据库备份分开妥善保管。
 - 提示词和成本结算记录长期保存，不设置自动过期。
+- 临时上传在创建 24 小时后由后台每小时清理一次，对象存储文件与数据库记录同步删除；生成结果暂不自动删除。
 
 ## 6. 常见问题
 

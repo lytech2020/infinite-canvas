@@ -21,9 +21,13 @@
         "@prisma/client": "^6.3.0",
         "argon2": "^0.41.1",
         "cookie-parser": "^1.4.7",
+        "dayjs": "^1.11.21",
         "dotenv": "^16.4.7",
         "express": "^5.1.0",
+        "express-rate-limit": "^8.6.2",
         "js-tiktoken": "^1.0.21",
+        "music-metadata": "^11.14.0",
+        "sharp": "^0.35.3",
         "winston": "^3.19.0",
         "zod": "^3.25.0"
     },

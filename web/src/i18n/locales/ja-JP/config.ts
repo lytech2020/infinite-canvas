@@ -1,7 +1,7 @@
 export default {
     title: "設定",
-    subtitle: "チャネル、既定モデル、同期設定を管理します",
-    pageSubtitle: "チャネル、モデル、同期設定を管理します",
+    subtitle: "利用可能なモデルと生成設定を選択します",
+    pageSubtitle: "利用可能なモデルと生成設定を選択します",
     importExport: {
         warning: "JSON ファイルには API Key と WebDAV の認証情報が含まれます。安全に保管してください。",
         import: "設定を読み込む",
@@ -60,9 +60,9 @@ export default {
     },
     modelPicker: {
         placeholder: "モデルを選択",
-        assignFirst: "チャネルで{{capability}}モデルを先に指定してください",
-        noMatch: "一致する{{capability}}モデルがありません",
-        addModelsFirst: "設定でチャネルとモデルを追加してください",
+        assignFirst: "利用可能な{{capability}}モデルがありません",
+        noMatch: "管理者が{{capability}}モデルをまだ有効にしていません",
+        addModelsFirst: "管理者が利用可能なモデルをまだ有効にしていません",
     },
     promptSources: {
         deleteTitle: "「{{name}}」を削除しますか？", deleteDescription: "ソース設定は削除されますが、マイアセットに追加済みの内容には影響しません。", delete: "削除", cancel: "キャンセル", updated: "「{{name}}」を {{count}} 件更新しました", updateFailedKeepCache: "更新に失敗しました。以前のキャッシュを保持します", updateSummary: "更新完了：成功 {{success}} 件、失敗 {{failure}} 件。失敗したソースは以前のキャッシュを保持します", updateSuccess: "{{success}} ソース、合計 {{total}} 件を更新しました", updateFailed: "更新に失敗しました", add: "ソースを追加", builtIn: "標準", itemCount: "{{count}} 件", failed: "失敗", healthy: "正常", notSynced: "未同期", lastSuccess: "前回成功 {{time}}", neverFetched: "未取得", view: "内容を表示", fetchNow: "今すぐ取得", edit: "ソースを編集", scheduled: "定期取得", interval: "取得間隔", fetchAll: "すべて今すぐ取得", lastFetched: "前回取得 {{time}}", neverScheduled: "定期取得なし", scheduleHelp: "間隔を有効にすると、このページを開いている間、すべての有効なソースを自動取得します。",

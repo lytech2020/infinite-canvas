@@ -20,14 +20,18 @@ enum UserStatus {
 }
 
 model User {
-    id           String     @id @default(cuid())
-    email        String     @unique
-    passwordHash String     @map("password_hash")
-    role         UserRole   @default(user)
-    status       UserStatus @default(active)
-    createdAt    DateTime   @default(now()) @map("created_at")
-    updatedAt    DateTime   @updatedAt @map("updated_at")
-    lastActiveAt DateTime?  @map("last_active_at")
+    id                    String     @id @default(cuid())
+    email                 String     @unique
+    passwordHash          String     @map("password_hash")
+    role                  UserRole   @default(user)
+    status                UserStatus @default(active)
+    dailyCallLimit        Int?       @map("daily_call_limit")
+    monthlyBudgetUsd      Decimal?   @map("monthly_budget_usd") @db.Decimal(18, 8)
+    concurrencyLimit      Int?       @map("concurrency_limit")
+    videoConcurrencyLimit Int?       @map("video_concurrency_limit")
+    createdAt             DateTime   @default(now()) @map("created_at")
+    updatedAt             DateTime   @updatedAt @map("updated_at")
+    lastActiveAt          DateTime?  @map("last_active_at")
     sessions     Session[]
     projects     Project[]
     jobs         GenerationJob[]

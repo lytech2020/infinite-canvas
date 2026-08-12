@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { prisma } from "../../db.js";
 import { env } from "../../env.js";
 import { ApiError } from "../../http/response.js";
-import { headObject, presignDownload, presignUpload, putObject } from "./s3.js";
+import { deleteObject, headObject, presignDownload, presignUpload, putObject } from "./s3.js";
 
 /** 后台默认文件限制，模型配置了更严格的限制时以模型为准。 */
 export const FILE_LIMITS = {
@@ -21,6 +21,9 @@ const EXTENSIONS: Record<string, string> = {
     "video/mp4": ".mp4",
     "audio/mpeg": ".mp3",
     "audio/wav": ".wav",
+    "audio/opus": ".opus",
+    "audio/aac": ".aac",
+    "audio/flac": ".flac",
 };
 
 /** 按 MIME 判断文件类别；不属于图片、视频、音频的一律拒绝。 */
@@ -84,8 +87,18 @@ export async function saveGeneratedFile(userId: string, jobId: string, body: Buf
     return { storageKey: key, mimeType, size: body.length, url: await presignDownload(key) };
 }
 
-/** 清理超时仍未完成上传的临时文件记录。 */
+/** 清理过期临时上传的对象和数据库记录；已进入任务的数据在 24 小时后同样无需继续保留。 */
 export async function cleanupExpiredUploads() {
-    const { count } = await prisma.upload.deleteMany({ where: { status: "pending", expiresAt: { lt: new Date() } } });
-    return count;
+    const expired = await prisma.upload.findMany({ where: { expiresAt: { lt: new Date() } }, select: { id: true, storageKey: true } });
+    const deletedIds: string[] = [];
+    for (const upload of expired) {
+        try {
+            await deleteObject(upload.storageKey);
+            deletedIds.push(upload.id);
+        } catch {
+            // 对象存储暂时不可用时保留数据库记录，下个周期继续清理。
+        }
+    }
+    if (deletedIds.length) await prisma.upload.deleteMany({ where: { id: { in: deletedIds } } });
+    return deletedIds.length;
 }

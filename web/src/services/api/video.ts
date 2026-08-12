@@ -10,6 +10,9 @@ import { runModelPlugin } from "./model-plugin";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 import { errorText } from "@/i18n/error-text";
+import { BackendError } from "./backend";
+import { decodeCloudModelId } from "@/stores/use-cloud-model-store";
+import { createCloudGeneration, fetchCloudGeneration, runCloudGeneration, type CloudGenerationContext, type GenerationJob } from "./generations";
 
 type VideoResponse = { id: string; status?: string; error?: { message?: string }; url?: string; result_url?: string; video_url?: string; content?: { video_url?: string; url?: string } | null };
 type ApiVideoResponse = VideoResponse | { code?: number | string; data?: VideoResponse | null; msg?: string; message?: string; error?: { message?: string } };
@@ -23,14 +26,18 @@ type SeedanceTask = {
     video_url?: string;
 };
 type ApiEnvelope<T> = T | { code?: number | string; data?: T | null; msg?: string; message?: string; error?: { message?: string } };
-type RequestOptions = { signal?: AbortSignal };
+type RequestOptions = { signal?: AbortSignal; cloud?: CloudGenerationContext };
 
 export type VideoGenerationResult = { blob?: Blob; url?: string; mimeType?: string };
-export type VideoGenerationTask = { id: string; provider: "openai" | "seedance" | "plugin"; model: string };
+export type VideoGenerationTask = { id: string; provider: "cloud" | "openai" | "seedance" | "plugin"; model: string };
 export type VideoGenerationTaskState = { status: "pending" } | { status: "completed"; result: VideoGenerationResult } | { status: "failed"; error: string };
 
 /** Results for scripted (plugin) video models, which run their own create+poll in one shot at task creation. */
 const pluginVideoResults = new Map<string, VideoGenerationResult>();
+
+function requireCloudVideoTask(task: VideoGenerationTask) {
+    if (task.provider !== "cloud") throw new Error(errorText("cloudModelRequired"));
+}
 
 function aiApiUrl(config: AiConfig, path: string) {
     return buildModelApiUrl(config, path);
@@ -41,6 +48,32 @@ function aiHeaders(config: AiConfig, contentType?: string) {
 }
 
 export async function requestVideoGeneration(config: AiConfig, prompt: string, references: ReferenceImage[] = [], videoReferences: ReferenceVideo[] = [], audioReferences: ReferenceAudio[] = [], options?: RequestOptions): Promise<VideoGenerationResult> {
+    const cloudModelId = decodeCloudModelId(config.model || config.videoModel);
+    if (!cloudModelId) throw new Error(errorText("cloudModelRequired"));
+    if (cloudModelId) {
+        const files = await cloudVideoFiles(references, videoReferences, audioReferences, options?.signal);
+        const job = await runCloudGeneration({
+            ...options?.cloud,
+            modelId: cloudModelId,
+            capability: "video",
+            prompt,
+            files,
+            params: {
+                seconds: Number(normalizeVideoSeconds(config.videoSeconds)),
+                size: normalizeVideoSize(config.size),
+                ratio: normalizeSeedanceRatio(config.size),
+                resolution: normalizeVideoResolution(config.vquality),
+                generateAudio: boolConfig(config.videoGenerateAudio, true),
+                watermark: boolConfig(config.videoWatermark, false),
+            },
+            signal: options?.signal,
+        });
+        const file = job.result?.files?.[0];
+        if (!file) throw new Error(errorText("videoMissing"));
+        const response = await fetch(file.url, { signal: options?.signal });
+        if (!response.ok) throw new Error(errorText("videoDownloadFailed"));
+        return { blob: await response.blob(), mimeType: file.mimeType };
+    }
     const task = await createVideoGenerationTask(config, prompt, references, videoReferences, audioReferences, options);
     const delayMs = task.provider === "seedance" ? 5000 : 2500;
     for (let attempt = 0; attempt < 120; attempt += 1) {
@@ -54,8 +87,63 @@ export async function requestVideoGeneration(config: AiConfig, prompt: string, r
     throw new Error(errorText("videoTimeout"));
 }
 
+async function cloudVideoFiles(references: ReferenceImage[], videos: ReferenceVideo[], audios: ReferenceAudio[], signal?: AbortSignal) {
+    return Promise.all([
+        ...references.map(async (reference) => ({ blob: dataUrlToFile({ ...reference, dataUrl: await imageToDataUrl(reference) }) as Blob, role: "reference_image" as const })),
+        ...videos.map(async (reference) => ({ blob: await mediaReferenceBlob(reference.url, reference.storageKey, reference.type, errorText("referenceVideoInvalid"), signal), role: "reference_video" as const })),
+        ...audios.map(async (reference) => ({ blob: await mediaReferenceBlob(reference.url, reference.storageKey, reference.type, errorText("referenceAudioInvalid"), signal), role: "reference_audio" as const })),
+    ]);
+}
+
+async function cloudVideoInput(config: AiConfig, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], options?: RequestOptions) {
+    return {
+        ...options?.cloud,
+        prompt,
+        files: await cloudVideoFiles(references, videoReferences, audioReferences, options?.signal),
+        params: {
+            seconds: Number(normalizeVideoSeconds(config.videoSeconds)),
+            size: normalizeVideoSize(config.size),
+            ratio: normalizeSeedanceRatio(config.size),
+            resolution: normalizeVideoResolution(config.vquality),
+            generateAudio: boolConfig(config.videoGenerateAudio, true),
+            watermark: boolConfig(config.videoWatermark, false),
+        },
+        signal: options?.signal,
+    };
+}
+
+async function cloudVideoResult(job: GenerationJob, signal?: AbortSignal): Promise<VideoGenerationResult> {
+    const file = job.result?.files?.[0];
+    if (!file) throw new Error(errorText("videoMissing"));
+    const response = await fetch(file.url, { signal });
+    if (!response.ok) throw new Error(errorText("videoDownloadFailed"));
+    return { blob: await response.blob(), mimeType: file.mimeType };
+}
+
+async function mediaReferenceBlob(url: string, storageKey: string | undefined, mimeType: string, errorMessage: string, signal?: AbortSignal) {
+    const stored = storageKey ? await getMediaBlob(storageKey) : null;
+    if (stored) return stored.type ? stored : new Blob([stored], { type: mimeType });
+    try {
+        const response = await fetch(url, { signal });
+        if (response.ok) {
+            const blob = await response.blob();
+            return blob.type ? blob : new Blob([blob], { type: mimeType });
+        }
+    } catch (error) {
+        if (error instanceof Error && error.name === "AbortError") throw error;
+    }
+    throw new Error(errorMessage);
+}
+
 export async function createVideoGenerationTask(config: AiConfig, prompt: string, references: ReferenceImage[] = [], videoReferences: ReferenceVideo[] = [], audioReferences: ReferenceAudio[] = [], options?: RequestOptions): Promise<VideoGenerationTask> {
     const selectedModel = (config.model || config.videoModel).trim();
+    const cloudModelId = decodeCloudModelId(selectedModel);
+    if (!cloudModelId) throw new Error(errorText("cloudModelRequired"));
+    if (cloudModelId) {
+        const input = await cloudVideoInput(config, prompt, references, videoReferences, audioReferences, options);
+        const job = await createCloudGeneration({ ...input, modelId: cloudModelId, capability: "video" });
+        return { id: job.id, provider: "cloud", model: selectedModel };
+    }
     const requestConfig = resolveModelRequestConfig(config, selectedModel);
     const script = resolveModelScript(config, selectedModel);
     if (script) return createPluginVideoTask(requestConfig, selectedModel, script, prompt, references, options);
@@ -70,6 +158,14 @@ export async function createVideoGenerationTask(config: AiConfig, prompt: string
 }
 
 export async function pollVideoGenerationTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {
+    requireCloudVideoTask(task);
+    if (task.provider === "cloud") {
+        const job = await fetchCloudGeneration(task.id, options?.signal);
+        if (job.status === "queued" || job.status === "running") return { status: "pending" };
+        if (job.status === "failed") return { status: "failed", error: new BackendError(job.errorCode || "PROVIDER_ERROR").message };
+        if (job.status === "cancelled") return { status: "failed", error: errorText("requestCancelled") };
+        return { status: "completed", result: await cloudVideoResult(job, options?.signal) };
+    }
     if (task.provider === "plugin") {
         const result = pluginVideoResults.get(task.id);
         return result ? { status: "completed", result } : { status: "failed", error: errorText("videoPluginExpired") };

@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { modelOptionLabel, modelOptionName, selectableModelsByCapability, type AiConfig, type ModelCapability } from "@/stores/use-config-store";
+import { useCloudModelStore } from "@/stores/use-cloud-model-store";
 
 type ModelPickerProps = {
     config: AiConfig;
@@ -21,7 +22,8 @@ export function ModelPicker({ config, value, onChange, capability, className, fu
     const { t } = useTranslation(["common", "config"]);
     const pickerId = useId();
     const [open, setOpen] = useState(false);
-    const options = useMemo(() => Array.from(new Set([...(config.channelMode === "local" && !capability ? [value] : []), ...selectableModelsByCapability(config, capability)].filter((model): model is string => Boolean(model)))), [capability, config, value]);
+    const cloudModels = useCloudModelStore((state) => state.models);
+    const options = useMemo(() => Array.from(new Set([...(config.channelMode === "local" && !capability ? [value] : []), ...selectableModelsByCapability(config, capability)].filter((model): model is string => Boolean(model)))), [capability, cloudModels, config, value]);
     const current = value || "";
     const pickerPlaceholder = placeholder || t("modelPicker.placeholder", { ns: "config" });
 
@@ -76,7 +78,7 @@ export function ModelPicker({ config, value, onChange, capability, className, fu
                     ))
                 ) : (
                     <SelectItem value="__empty__" disabled>
-                        {emptyModelLabel(config, capability, t)}
+                        {emptyModelLabel(capability, t)}
                     </SelectItem>
                 )}
             </SelectContent>
@@ -84,10 +86,9 @@ export function ModelPicker({ config, value, onChange, capability, className, fu
     );
 }
 
-function emptyModelLabel(config: AiConfig, capability: ModelCapability | undefined, t: ReturnType<typeof useTranslation>["t"]) {
+function emptyModelLabel(capability: ModelCapability | undefined, t: ReturnType<typeof useTranslation>["t"]) {
     const label = capability ? t(`capabilities.${capability}`, { ns: "common" }) : "";
-    if (capability && config.models.length) return t("modelPicker.assignFirst", { ns: "config", capability: label });
-    return config.models.length ? t("modelPicker.noMatch", { ns: "config", capability: label }) : t("modelPicker.addModelsFirst", { ns: "config" });
+    return capability ? t("modelPicker.noMatch", { ns: "config", capability: label }) : t("modelPicker.addModelsFirst", { ns: "config" });
 }
 
 function ModelLabel({ config, model }: { config: AiConfig; model: string }) {

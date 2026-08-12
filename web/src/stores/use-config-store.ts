@@ -4,6 +4,7 @@ import { persist } from "zustand/middleware";
 import { nanoid } from "nanoid";
 
 import i18n from "@/i18n";
+import { cloudModel, cloudModelsByCapability, decodeCloudModelId, encodeCloudModel } from "@/stores/use-cloud-model-store";
 
 // 渠道名只在“没有名字”时按当前语言生成，已有名字一律保留,切换语言不改写用户数据
 const defaultChannelName = () => i18n.t("defaultChannel", { ns: "config" });
@@ -66,7 +67,7 @@ export type WebdavSyncConfig = {
     directory: string;
     lastSyncedAt: string;
 };
-export type ConfigTabKey = "channels" | "preferences";
+export type ConfigTabKey = "preferences";
 
 export const CONFIG_STORE_KEY = "infinite-canvas:ai_config_store";
 const CHANNEL_MODEL_SEPARATOR = "::";
@@ -136,6 +137,7 @@ type ConfigStore = {
     configTab: ConfigTabKey;
     shouldPromptContinue: boolean;
     updateConfig: <K extends keyof AiConfig>(key: K, value: AiConfig[K]) => void;
+    clearProviderConfig: () => void;
     updateWebdavConfig: <K extends keyof WebdavSyncConfig>(key: K, value: WebdavSyncConfig[K]) => void;
     isAiConfigReady: (config: AiConfig, model: string) => boolean;
     openConfigDialog: (shouldPromptContinue?: boolean, tab?: ConfigTabKey) => void;
@@ -165,6 +167,8 @@ function findChannelModel(config: AiConfig, value: string): { channel: ModelChan
 }
 
 export function modelCapabilityOf(config: AiConfig, value: string): ModelCapability | undefined {
+    const remote = cloudModel(value);
+    if (remote) return remote.capability;
     return findChannelModel(config, value)?.model.capability;
 }
 
@@ -182,8 +186,8 @@ export function resolveModelForCapability(config: AiConfig, currentModel: string
 }
 
 export function selectableModelsByCapability(config: AiConfig, capability?: ModelCapability) {
-    if (!capability) return config.models;
-    return config.channels.flatMap((channel) => channel.models.filter((model) => model.capability === capability).map((model) => encodeChannelModel(channel.id, model.name)));
+    const remote = cloudModelsByCapability(capability).map((model) => encodeCloudModel(model.id));
+    return remote;
 }
 
 /** The user script (if any) attached to a model; empty string means use the system default call. */
@@ -191,9 +195,8 @@ export function resolveModelScript(config: AiConfig, value: string) {
     return findChannelModel(config, value)?.model.script?.trim() || "";
 }
 
-function isAiConfigReady(config: AiConfig, model: string) {
-    const channel = resolveModelChannel(config, model);
-    return Boolean(model.trim() && channel.baseUrl.trim() && channel.apiKey.trim());
+function isAiConfigReady(_config: AiConfig, model: string) {
+    return Boolean(decodeCloudModelId(model) && cloudModel(model));
 }
 
 export const useConfigStore = create<ConfigStore>()(
@@ -202,7 +205,7 @@ export const useConfigStore = create<ConfigStore>()(
             config: defaultConfig,
             webdav: defaultWebdavSyncConfig,
             isConfigOpen: false,
-            configTab: "channels",
+            configTab: "preferences",
             shouldPromptContinue: false,
             updateConfig: (key, value) =>
                 set((state) => ({
@@ -211,6 +214,7 @@ export const useConfigStore = create<ConfigStore>()(
                         [key]: value,
                     },
                 })),
+            clearProviderConfig: () => set((state) => ({ config: { ...state.config, baseUrl: "", apiKey: "", apiFormat: "openai", azureApiVersion: "", channels: [], models: [], systemPrompt: "" } })),
             updateWebdavConfig: (key, value) =>
                 set((state) => ({
                     webdav: {
@@ -219,13 +223,13 @@ export const useConfigStore = create<ConfigStore>()(
                     },
                 })),
             isAiConfigReady: (config, model) => isAiConfigReady(config, model),
-            openConfigDialog: (shouldPromptContinue = false, configTab = "channels") => set({ isConfigOpen: true, shouldPromptContinue, configTab }),
+            openConfigDialog: (shouldPromptContinue = false, configTab = "preferences") => set({ isConfigOpen: true, shouldPromptContinue, configTab }),
             setConfigDialogOpen: (isConfigOpen) => set({ isConfigOpen }),
             clearPromptContinue: () => set({ shouldPromptContinue: false }),
         }),
         {
             name: CONFIG_STORE_KEY,
-            partialize: (state) => ({ config: state.config, webdav: state.webdav }),
+            partialize: (state) => ({ config: { ...state.config, baseUrl: "", apiKey: "", apiFormat: "openai" as const, azureApiVersion: "", channels: [], models: [], systemPrompt: "" } }),
             merge: (persisted, current) => {
                 const persistedState = (persisted || {}) as Partial<ConfigStore>;
                 const persistedConfig = (persistedState.config || {}) as Partial<AiConfig>;
@@ -317,6 +321,8 @@ export function modelOptionName(value: string) {
 }
 
 export function modelOptionLabel(config: AiConfig, value: string) {
+    const remote = cloudModel(value);
+    if (remote) return remote.displayName;
     const decoded = decodeChannelModel(value);
     if (!decoded) return value;
     const channel = config.channels.find((item) => item.id === decoded.channelId);

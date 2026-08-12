@@ -5,8 +5,10 @@ import { uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { buildModelApiHeaders, buildModelApiUrl, resolveModelRequestConfig, resolveModelScript, type AiConfig } from "@/stores/use-config-store";
 import { runModelPlugin } from "./model-plugin";
 import { errorText } from "@/i18n/error-text";
+import { decodeCloudModelId } from "@/stores/use-cloud-model-store";
+import { runCloudGeneration, type CloudGenerationContext } from "./generations";
 
-type RequestOptions = { signal?: AbortSignal };
+type RequestOptions = { signal?: AbortSignal; cloud?: CloudGenerationContext };
 
 function aiApiUrl(config: AiConfig, path: string) {
     return buildModelApiUrl(config, path);
@@ -17,6 +19,29 @@ function aiHeaders(config: AiConfig) {
 }
 
 export async function requestAudioGeneration(config: AiConfig, prompt: string, options?: RequestOptions): Promise<Blob> {
+    const cloudModelId = decodeCloudModelId(config.model || config.audioModel);
+    if (!cloudModelId) throw new Error(errorText("cloudModelRequired"));
+    if (cloudModelId) {
+        const job = await runCloudGeneration({
+            ...options?.cloud,
+            modelId: cloudModelId,
+            capability: "audio",
+            prompt,
+            params: {
+                voice: normalizeAudioVoiceValue(config.audioVoice),
+                format: normalizeAudioFormatValue(config.audioFormat),
+                speed: Number(normalizeAudioSpeedValue(config.audioSpeed)),
+                ...(config.audioInstructions.trim() ? { instructions: config.audioInstructions.trim() } : {}),
+            },
+            signal: options?.signal,
+        });
+        const file = job.result?.files?.[0];
+        if (!file) throw new Error(errorText("audioMissing"));
+        const response = await fetch(file.url, { signal: options?.signal });
+        if (!response.ok) throw new Error(errorText("audioFailed"));
+        const blob = await response.blob();
+        return blob.type.startsWith("audio/") ? blob : new Blob([blob], { type: file.mimeType });
+    }
     const requestConfig = resolveModelRequestConfig(config, config.model || config.audioModel);
     const model = requestConfig.model.trim();
     const format = normalizeAudioFormatValue(config.audioFormat);

@@ -25,12 +25,28 @@ export async function backendRequest<T>(path: string, init?: { method?: string; 
             body: init?.body === undefined ? undefined : JSON.stringify(init.body),
             signal: init?.signal,
         });
-    } catch {
+    } catch (error) {
+        if (error instanceof Error && error.name === "AbortError") throw error;
         throw new BackendError("NETWORK_ERROR");
     }
     const payload = (await response.json().catch(() => ({}))) as BackendResponse<T>;
     if (!response.ok || payload.error) throw new BackendError(payload.error?.code || "INTERNAL_ERROR", payload.error?.details);
     return payload.data as T;
+}
+
+/** 下载后台生成的文件；失败时仍按统一错误代码显示本地化文案。 */
+export async function backendDownload(path: string) {
+    let response: Response;
+    try {
+        response = await fetch(`${API_BASE}/api/v1${path}`, { credentials: "include" });
+    } catch {
+        throw new BackendError("NETWORK_ERROR");
+    }
+    if (!response.ok) {
+        const payload = (await response.json().catch(() => ({}))) as BackendResponse<never>;
+        throw new BackendError(payload.error?.code || "INTERNAL_ERROR", payload.error?.details);
+    }
+    return response.blob();
 }
 
 export type PagedResult<T> = { items: T[]; total: number; page: number; pageSize: number };

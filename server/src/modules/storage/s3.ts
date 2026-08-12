@@ -1,4 +1,4 @@
-import { GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 import { env } from "../../env.js";
@@ -36,4 +36,9 @@ export async function getObjectBuffer(key: string) {
 export async function putObject(key: string, body: Buffer, mimeType: string) {
     await client.send(new PutObjectCommand({ Bucket: env.s3Bucket, Key: key, Body: body, ContentType: mimeType }));
     return key;
+}
+
+/** 删除过期临时上传，避免数据库记录清理后对象仍留在存储桶中。 */
+export function deleteObject(key: string) {
+    return client.send(new DeleteObjectCommand({ Bucket: env.s3Bucket, Key: key }));
 }

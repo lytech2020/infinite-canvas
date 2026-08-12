@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { App, Button, Form, Input } from "antd";
 import { useTranslation } from "react-i18next";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
 import { fetchRegistrationOpen } from "@/services/api/auth";
 import { useUserStore } from "@/stores/use-user-store";
@@ -72,7 +72,7 @@ export default function LoginPage() {
                     ) : null}
                 </div>
 
-                <p className="mt-6 text-center text-xs leading-5 text-stone-400 dark:text-stone-500">{t("privacyNotice")}</p>
+                <Link to="/privacy" className="mt-6 block text-center text-xs leading-5 text-stone-400 transition hover:text-stone-700 dark:text-stone-500 dark:hover:text-stone-200">{t("privacyNotice")}</Link>
             </section>
         </main>
     );

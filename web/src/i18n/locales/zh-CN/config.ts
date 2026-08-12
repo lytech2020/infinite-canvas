@@ -1,7 +1,7 @@
 export default {
-    title: "配置与用户偏好",
-    subtitle: "渠道聚合、默认模型和同步偏好",
-    pageSubtitle: "渠道聚合、模型选择和同步偏好",
+    title: "用户偏好",
+    subtitle: "选择后台开放的模型和常用生成参数",
+    pageSubtitle: "选择后台开放的模型和常用生成参数",
     importExport: {
         warning: "JSON 文件包含 API Key 和 WebDAV 凭据，请妥善保管。",
         import: "导入配置",
@@ -60,9 +60,9 @@ export default {
     },
     modelPicker: {
         placeholder: "选择模型",
-        assignFirst: "请先在渠道里为{{capability}}指定模型",
-        noMatch: "暂无匹配的{{capability}}模型",
-        addModelsFirst: "请先到配置里添加渠道和模型",
+        assignFirst: "暂无可用的{{capability}}模型",
+        noMatch: "管理员尚未启用{{capability}}模型",
+        addModelsFirst: "管理员尚未启用可用模型",
     },
     promptSources: {
         deleteTitle: "删除「{{name}}」？", deleteDescription: "来源配置会被移除，已经加入我的资产的内容不受影响。", delete: "删除", cancel: "取消", updated: "「{{name}}」已更新 {{count}} 条", updateFailedKeepCache: "更新失败，已保留旧缓存", updateSummary: "更新完成：{{success}} 个成功，{{failure}} 个失败，失败来源已保留旧缓存", updateSuccess: "已更新 {{success}} 个来源，共 {{total}} 条", updateFailed: "更新失败", add: "新增来源", builtIn: "内置", itemCount: "{{count}} 条", failed: "失败", healthy: "正常", notSynced: "未同步", lastSuccess: "上次成功 {{time}}", neverFetched: "尚未拉取", view: "查看内容", fetchNow: "立即拉取", edit: "编辑来源", scheduled: "定时拉取", interval: "拉取周期", fetchAll: "全部立即拉取", lastFetched: "上次拉取 {{time}}", neverScheduled: "尚未定时拉取", scheduleHelp: "开启周期后，页面打开期间会按周期自动拉取所有启用的来源。",
