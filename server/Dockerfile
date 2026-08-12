@@ -22,5 +22,5 @@ COPY server/package.json ./
 COPY server/package-lock.json ./
 
 EXPOSE 8787
-# 启动前执行数据库迁移，保证表结构与代码一致。
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/src/index.js"]
+# 迁移失败时停止启动；幂等 seed 失败只告警，避免可选初始化配置使服务陷入重启循环。
+CMD ["sh", "-c", "npx prisma migrate deploy && (node dist/prisma/seed.js || echo '警告：初始化 seed 失败，后台继续启动，请检查配置和日志' >&2) && node dist/src/index.js"]

@@ -18,10 +18,12 @@ type BackendResponse<T> = { data?: T; error?: { code: string; message?: string; 
 export async function backendRequest<T>(path: string, init?: { method?: string; body?: unknown; signal?: AbortSignal }) {
     let response: Response;
     try {
+        const method = init?.method || "GET";
+        const mutating = !["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase());
         response = await fetch(`${API_BASE}/api/v1${path}`, {
-            method: init?.method || "GET",
+            method,
             credentials: "include",
-            headers: init?.body === undefined ? undefined : { "Content-Type": "application/json" },
+            headers: { ...(init?.body === undefined ? {} : { "Content-Type": "application/json" }), ...(mutating ? { "X-Requested-With": "infinite-canvas" } : {}) },
             body: init?.body === undefined ? undefined : JSON.stringify(init.body),
             signal: init?.signal,
         });

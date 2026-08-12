@@ -9,6 +9,7 @@ import { toJson } from "../audit.js";
 import { assertUserQuota } from "../quota/service.js";
 import { deleteObject, getObjectBuffer, presignDownload } from "../storage/s3.js";
 import { fileKind, resolveJobFiles, saveGeneratedFile } from "../storage/uploads.js";
+import { hasPriceForRequest, resolvePrice } from "../usage/pricing.js";
 import { settleSucceededJob, settleUnbilledJob, type SettleInput } from "../usage/service.js";
 import { editImage, generateAudio, generateImage, generateText, generateVideo, type VideoReference } from "./providers/openai.js";
 
@@ -29,9 +30,17 @@ export type CreateJobInput = {
 };
 
 type ParamRule = { type?: unknown; values?: unknown; min?: unknown; max?: unknown };
+const DEFAULT_MAX_OUTPUT_COUNT = 10;
+const MAX_OUTPUT_TOKENS = 32_768;
+const MAX_VIDEO_SECONDS = 60;
+const MAX_MESSAGES = 100;
+const MAX_MESSAGE_LENGTH = 20_000;
+const MAX_MESSAGES_TOTAL_LENGTH = 100_000;
+const MAX_PARAMS_BYTES = 200_000;
 
 /** 只校验管理员为该模型显式配置的参数，任务归属、文件角色等内部字段不受影响。 */
 function assertModelParams(model: Model, params: Record<string, unknown>) {
+    if (Buffer.byteLength(JSON.stringify(params), "utf8") > MAX_PARAMS_BYTES) throw new ApiError("VALIDATION_FAILED", "模型参数内容过大", { maxBytes: MAX_PARAMS_BYTES });
     const schema = model.paramSchema && typeof model.paramSchema === "object" && !Array.isArray(model.paramSchema) ? (model.paramSchema as Record<string, ParamRule>) : {};
     for (const [key, rule] of Object.entries(schema)) {
         const value = params[key];
@@ -45,8 +54,27 @@ function assertModelParams(model: Model, params: Record<string, unknown>) {
     if (params.count !== undefined && (typeof params.count !== "number" || !Number.isInteger(params.count) || params.count < 1)) {
         throw new ApiError("VALIDATION_FAILED", "单次生成数量必须是正整数", { parameter: "count" });
     }
-    if (model.maxOutputCount && typeof params.count === "number" && params.count > model.maxOutputCount) {
-        throw new ApiError("VALIDATION_FAILED", "单次生成数量超过模型限制", { parameter: "count", maxOutputCount: model.maxOutputCount });
+    const maxOutputCount = model.maxOutputCount ?? DEFAULT_MAX_OUTPUT_COUNT;
+    if (typeof params.count === "number" && params.count > maxOutputCount) {
+        throw new ApiError("VALIDATION_FAILED", "单次生成数量超过模型限制", { parameter: "count", maxOutputCount });
+    }
+    if (params.maxOutputTokens !== undefined && (typeof params.maxOutputTokens !== "number" || !Number.isInteger(params.maxOutputTokens) || params.maxOutputTokens < 1 || params.maxOutputTokens > MAX_OUTPUT_TOKENS)) {
+        throw new ApiError("VALIDATION_FAILED", "文本输出 Token 超过后台限制", { parameter: "maxOutputTokens", max: MAX_OUTPUT_TOKENS });
+    }
+    if (params.seconds !== undefined && (typeof params.seconds !== "number" || !Number.isFinite(params.seconds) || params.seconds <= 0 || params.seconds > MAX_VIDEO_SECONDS)) {
+        throw new ApiError("VALIDATION_FAILED", "视频时长超过后台限制", { parameter: "seconds", max: MAX_VIDEO_SECONDS });
+    }
+    if (params.messages !== undefined) {
+        if (!Array.isArray(params.messages) || params.messages.length > MAX_MESSAGES) throw new ApiError("VALIDATION_FAILED", "多轮消息数量超过后台限制", { parameter: "messages", max: MAX_MESSAGES });
+        let totalLength = 0;
+        for (const item of params.messages) {
+            if (!item || typeof item !== "object") throw new ApiError("VALIDATION_FAILED", "多轮消息格式不正确", { parameter: "messages" });
+            const { role, content } = item as { role?: unknown; content?: unknown };
+            if (role !== "system" && role !== "user" && role !== "assistant") throw new ApiError("VALIDATION_FAILED", "多轮消息角色不正确", { parameter: "messages" });
+            if (typeof content !== "string" || !content.trim() || content.length > MAX_MESSAGE_LENGTH) throw new ApiError("VALIDATION_FAILED", "单条消息长度超过后台限制", { parameter: "messages", maxLength: MAX_MESSAGE_LENGTH });
+            totalLength += content.length;
+        }
+        if (totalLength > MAX_MESSAGES_TOTAL_LENGTH) throw new ApiError("VALIDATION_FAILED", "多轮消息总长度超过后台限制", { parameter: "messages", maxLength: MAX_MESSAGES_TOTAL_LENGTH });
     }
 }
 
@@ -87,11 +115,15 @@ export async function publicJob(job: GenerationJob) {
 
 /** 创建生成任务；同一用户的相同 requestId 直接返回已存在任务，不重复创建也不重复计费。 */
 export async function createJob(user: User, input: CreateJobInput) {
+    const existingJob = await prisma.generationJob.findUnique({ where: { userId_requestId: { userId: user.id, requestId: input.requestId } } });
+    if (existingJob) return existingJob;
     const model = await prisma.model.findUnique({ where: { id: input.modelId }, include: { provider: true } });
     if (!model || !model.enabled || !model.provider.enabled) throw new ApiError("MODEL_UNAVAILABLE", "模型不可用");
     if (model.provider.apiFormat === "gemini") throw new ApiError("MODEL_UNAVAILABLE", "Gemini 原生协议尚未接入后台网关");
     if (model.capability !== input.capability) throw new ApiError("VALIDATION_FAILED", "模型能力与请求不一致");
     assertModelParams(model, input.params ?? {});
+    const priceRule = await resolvePrice(model.id, new Date());
+    if (!priceRule || !hasPriceForRequest(priceRule, input.capability, input.params ?? {})) throw new ApiError("MODEL_PRICE_MISSING", "模型缺少当前请求可用的价格规则");
     if (input.projectId) {
         const project = await prisma.project.findUnique({ where: { id: input.projectId } });
         if (!project || project.userId !== user.id) throw new ApiError("NOT_FOUND", "项目不存在");
@@ -110,14 +142,14 @@ export async function createJob(user: User, input: CreateJobInput) {
 
     const { job, created } = await prisma.$transaction(async (tx) => {
         // 用户锁保证相同 requestId 与用户并发检查原子化；模型锁保证全局模型并发不会被并行请求突破。
-        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`generation:user:${user.id}`}, 0))`;
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`generation:user:${user.id}`}, 0))::text`;
         const existing = await tx.generationJob.findUnique({ where: { userId_requestId: { userId: user.id, requestId: input.requestId } } });
         if (existing) return { job: existing, created: false };
-        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`generation:model:${model.id}`}, 0))`;
+        await assertUserQuota(tx, user, input.capability);
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`generation:model:${model.id}`}, 0))::text`;
         if (model.maxConcurrency && (await tx.generationJob.count({ where: { modelId: model.id, status: { in: ["queued", "running"] } } })) >= model.maxConcurrency) {
             throw new ApiError("SERVICE_BUSY", "该模型当前繁忙");
         }
-        await assertUserQuota(tx, user, input.capability);
         const createdJob = await tx.generationJob.create({
             data: {
                 requestId: input.requestId,
@@ -129,12 +161,12 @@ export async function createJob(user: User, input: CreateJobInput) {
                 modelId: model.id,
                 capability: input.capability,
                 promptText: input.prompt,
-                params: toJson({ ...(input.params ?? {}), fileIds: files.map((file) => file.id) }),
+                params: toJson({ ...(input.params ?? {}), fileIds: files.map((file) => file.id), _priceRuleId: priceRule.id }),
             },
         });
         return { job: createdJob, created: true };
-    });
-    if (created) void runJob(job.id);
+    }, { maxWait: 5_000, timeout: 10_000 });
+    if (created) void runJob(job.id).catch((error) => logger.error("生成任务执行异常", { jobId: job.id, error: error instanceof Error ? error.message : String(error) }));
     return job;
 }
 
@@ -264,8 +296,8 @@ async function discardResult(result: JobResult) {
 /** 成功状态、结果和费用必须同时提交；任一环节失败都不能留下“成功但无费用”的任务。 */
 async function completeSucceededJob(jobId: string, input: SettleInput, providerRequestId: string | undefined, result: JobResult) {
     try {
-        const completed = await settleSucceededJob(jobId, input, { providerRequestId, result });
-        if (!completed) await discardResult(result);
+        const outcome = await settleSucceededJob(jobId, input, { providerRequestId, result });
+        if (outcome !== "succeeded") await discardResult(result);
     } catch (error) {
         await discardResult(result);
         throw error;

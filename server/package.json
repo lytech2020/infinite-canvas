@@ -10,7 +10,8 @@
         "typecheck": "tsc --noEmit",
         "migrate": "prisma migrate deploy",
         "migrate:dev": "prisma migrate dev",
-        "seed": "tsx prisma/seed.ts"
+        "seed": "tsx prisma/seed.ts",
+        "test:integration": "node tests/run-integration.mjs"
     },
     "prisma": {
         "seed": "tsx prisma/seed.ts"
@@ -25,6 +26,7 @@
         "dotenv": "^16.4.7",
         "express": "^5.1.0",
         "express-rate-limit": "^8.6.2",
+        "file-type": "^20.5.0",
         "js-tiktoken": "^1.0.21",
         "music-metadata": "^11.14.0",
         "sharp": "^0.35.3",

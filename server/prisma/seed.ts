@@ -33,9 +33,8 @@ async function seedAzureProvider() {
     const name = "Azure OpenAI";
     const apiVersion = (process.env.AZURE_OPENAI_API_VERSION || "preview").trim();
     const existing = await prisma.provider.findFirst({ where: { name } });
-    const provider = existing
-        ? await prisma.provider.update({ where: { id: existing.id }, data: { baseUrl: endpoint, apiKeyCipher: encryptSecret(apiKey), apiVersion, enabled: true } })
-        : await prisma.provider.create({ data: { name, apiFormat: "azure_openai", baseUrl: endpoint, apiKeyCipher: encryptSecret(apiKey), apiVersion } });
+    const provider = existing ?? (await prisma.provider.create({ data: { name, apiFormat: "azure_openai", baseUrl: endpoint, apiKeyCipher: encryptSecret(apiKey), apiVersion } }));
+    if (existing) console.log(`渠道「${name}」已存在，保留管理后台中的现有配置，仅补充缺失模型`);
 
     for (const [index, deployment] of deployments.entries()) {
         const existingModel = await prisma.model.findFirst({ where: { providerId: provider.id, remoteName: deployment.name, capability: deployment.capability } });
@@ -53,13 +52,14 @@ async function seedAzureProvider() {
 async function main() {
     const email = (process.env.ADMIN_EMAIL || "").trim().toLowerCase();
     const password = process.env.ADMIN_PASSWORD || "";
-    if (!email || !password) throw new Error("缺少 ADMIN_EMAIL 或 ADMIN_PASSWORD");
+    if (!email) throw new Error("缺少 ADMIN_EMAIL");
 
     const existing = await prisma.user.findUnique({ where: { email } });
     if (existing) {
         if (existing.role !== "admin") await prisma.user.update({ where: { id: existing.id }, data: { role: "admin" } });
         console.log(`管理员已存在：${email}`);
     } else {
+        if (password.length < 8 || password.length > 16) throw new Error("创建管理员时 ADMIN_PASSWORD 长度必须为 8-16 位");
         await prisma.user.create({ data: { email, passwordHash: await argon2.hash(password), role: "admin" } });
         console.log(`已创建管理员：${email}，请登录后立即修改密码`);
     }

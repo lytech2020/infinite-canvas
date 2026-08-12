@@ -18,6 +18,7 @@ export type UsageGroup = UsageSummary & { key: string; modelName?: string; capab
 export type AdminOverview = {
     users: { total: number; activeIn30Days: number };
     runningJobs: number;
+    modelsMissingPrice: number;
     today: UsageSummary;
     month: UsageSummary;
     custom: UsageSummary;

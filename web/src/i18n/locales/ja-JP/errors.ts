@@ -27,6 +27,7 @@ export default {
         FILE_TYPE_NOT_ALLOWED: "このファイル形式には対応していません",
         FILE_COUNT_EXCEEDED: "参照ファイル数が上限を超えています",
         MODEL_UNAVAILABLE: "このモデルは現在利用できません",
+        MODEL_PRICE_MISSING: "モデル料金が未設定です。管理者にお問い合わせください",
         SERVICE_BUSY: "サービスが混雑しています。しばらくしてからお試しください",
         PROVIDER_TIMEOUT: "生成がタイムアウトしました。再試行してください",
         PROVIDER_ERROR: "生成サービスの呼び出しに失敗しました。再試行してください",

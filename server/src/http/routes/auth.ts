@@ -7,8 +7,8 @@ import { createSession, revokeOtherUserSessions, revokeSession } from "../../mod
 import { requireUser } from "../auth-middleware.js";
 import { ok, route } from "../response.js";
 
-const credentials = z.object({ email: z.string().email(), password: z.string().min(8).max(128) });
-const passwordBody = z.object({ currentPassword: z.string().min(8).max(128), newPassword: z.string().min(8).max(128) });
+const credentials = z.object({ email: z.string().email(), password: z.string().min(8).max(16) });
+const passwordBody = z.object({ currentPassword: z.string().min(8).max(16), newPassword: z.string().min(8).max(16) });
 
 export const authRouter = Router();
 const credentialLimit = rateLimit({

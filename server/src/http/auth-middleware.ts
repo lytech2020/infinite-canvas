@@ -13,12 +13,12 @@ declare module "express-serve-static-core" {
 }
 
 /** 解析会话 Cookie，把当前用户挂到请求上；不做拦截。 */
-export async function attachUser(req: Request, _res: Response, next: NextFunction) {
+export async function attachUser(req: Request, res: Response, next: NextFunction) {
     try {
         const token = req.cookies?.[env.sessionCookieName];
         if (token) {
             req.sessionToken = token;
-            req.user = (await readSessionUser(token)) || undefined;
+            req.user = (await readSessionUser(token, res)) || undefined;
         }
         next();
     } catch (error) {

@@ -49,6 +49,7 @@ adminModelsRouter.patch(
     route(async (req, res) => {
         const body = modelBody.partial().parse(req.body);
         if (!(await prisma.model.findUnique({ where: { id: param(req, "id") } }))) throw new ApiError("NOT_FOUND", "模型不存在");
+        if (body.providerId && !(await prisma.provider.findUnique({ where: { id: body.providerId } }))) throw new ApiError("NOT_FOUND", "渠道不存在");
         const model = await prisma.model.update({
             where: { id: param(req, "id") },
             data: {
@@ -97,7 +98,10 @@ adminModelsRouter.post(
     route(async (req, res) => {
         const body = priceBody.parse(req.body);
         if (body.effectiveTo && body.effectiveTo <= body.effectiveFrom) throw new ApiError("VALIDATION_FAILED", "价格结束时间必须晚于生效时间");
-        if (!(await prisma.model.findUnique({ where: { id: param(req, "id") } }))) throw new ApiError("NOT_FOUND", "模型不存在");
+        const model = await prisma.model.findUnique({ where: { id: param(req, "id") } });
+        if (!model) throw new ApiError("NOT_FOUND", "模型不存在");
+        const expectedPricingType = model.capability === "text" ? "token" : model.capability;
+        if (body.pricingType !== "fixed" && body.pricingType !== expectedPricingType) throw new ApiError("VALIDATION_FAILED", "计价方式与模型能力不匹配");
         const price = await prisma.modelPrice.create({
             data: { modelId: param(req, "id"), pricingType: body.pricingType, unitPrices: toJson(body.unitPrices), effectiveFrom: body.effectiveFrom, effectiveTo: body.effectiveTo ?? null, createdById: req.user!.id },
         });

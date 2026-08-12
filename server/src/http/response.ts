@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
+import { Prisma } from "@prisma/client";
 import { ZodError } from "zod";
 
 import { logger } from "../logger.js";
@@ -24,6 +25,7 @@ export const errorStatus = {
     FILE_TYPE_NOT_ALLOWED: 415,
     FILE_COUNT_EXCEEDED: 400,
     MODEL_UNAVAILABLE: 409,
+    MODEL_PRICE_MISSING: 409,
     PROVIDER_ERROR: 502,
     PROVIDER_TIMEOUT: 504,
     SERVICE_BUSY: 503,
@@ -74,6 +76,10 @@ export function errorHandler(error: unknown, _req: Request, res: Response, _next
         res.status(errorStatus.VALIDATION_FAILED).json({ error: { code: "VALIDATION_FAILED", message: "请求参数不合法", details: { issues: error.issues.map((issue) => ({ path: issue.path.join("."), message: issue.message })) } } });
         return;
     }
-    logger.error("未处理的服务端错误", { message: error instanceof Error ? error.message : String(error) });
+    if (error instanceof Prisma.PrismaClientKnownRequestError && (error.code === "P2024" || error.code === "P2028")) {
+        res.status(errorStatus.SERVICE_BUSY).json({ error: { code: "SERVICE_BUSY", message: "服务繁忙，请稍后重试" } });
+        return;
+    }
+    logger.error("未处理的服务端错误", { error: error instanceof Error ? error.message : String(error) });
     res.status(errorStatus.INTERNAL_ERROR).json({ error: { code: "INTERNAL_ERROR", message: "服务内部错误" } });
 }

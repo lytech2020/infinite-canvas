@@ -9,7 +9,7 @@ import { ApiError } from "../../http/response.js";
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
-function periods(now = new Date()) {
+export function quotaPeriods(now = new Date()) {
     const local = dayjs(now).tz(env.quotaTimezone);
     return {
         dayStart: local.startOf("day").toDate(),
@@ -20,7 +20,7 @@ function periods(now = new Date()) {
 }
 
 export async function readUserQuotaUsage(db: Prisma.TransactionClient | PrismaClient, user: User) {
-    const { dayStart, dayResetAt, monthStart, monthResetAt } = periods();
+    const { dayStart, dayResetAt, monthStart, monthResetAt } = quotaPeriods();
     const [dailyCalls, month] = await Promise.all([
         db.generationJob.count({ where: { userId: user.id, createdAt: { gte: dayStart } } }),
         db.aiUsageRecord.aggregate({ where: { userId: user.id, createdAt: { gte: monthStart } }, _sum: { amountUsd: true } }),
@@ -41,7 +41,7 @@ export async function assertUserQuota(db: Prisma.TransactionClient, user: User, 
     const active = { userId: user.id, status: { in: ["queued", "running"] as JobStatus[] } };
     const concurrencyLimit = user.concurrencyLimit ?? env.userMaxConcurrentJobs;
     const videoConcurrencyLimit = user.videoConcurrencyLimit ?? env.userMaxConcurrentVideoJobs;
-    const { dayStart, monthStart } = periods();
+    const { dayStart, monthStart } = quotaPeriods();
     const [running, videos, dailyCalls, month] = await Promise.all([
         db.generationJob.count({ where: active }),
         capability === "video" ? db.generationJob.count({ where: { ...active, capability: "video" } }) : Promise.resolve(0),
