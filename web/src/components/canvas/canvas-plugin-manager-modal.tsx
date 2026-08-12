@@ -20,9 +20,8 @@ export function CanvasPluginManagerModal({ open, onClose }: { open: boolean; onC
     const [loadingOfficial, setLoadingOfficial] = useState(false);
     const [officialError, setOfficialError] = useState<string | null>(null);
 
-    const recordById = useMemo(() => new Map(plugins.map((item) => [item.id, item])), [plugins]);
-    const localPlugins = useMemo(() => plugins.filter((item) => item.local), [plugins]);
-    const thirdPartyPlugins = useMemo(() => plugins.filter((item) => !item.local && !item.official), [plugins]);
+    const officialPlugins = useMemo(() => plugins.filter((item) => item.official), [plugins]);
+    const recordById = useMemo(() => new Map(officialPlugins.map((item) => [item.id, item])), [officialPlugins]);
 
     const loadOfficial = useCallback(async () => {
         setLoadingOfficial(true);
@@ -176,16 +175,6 @@ export function CanvasPluginManagerModal({ open, onClose }: { open: boolean; onC
         </div>
     );
 
-    const localTab = <div className="thin-scrollbar max-h-[52vh] space-y-2 overflow-auto">{localPlugins.map((record) => row(record.id, <Puzzle className="size-4" />, record.name, record.version, record.description || record.url, installedControls(record)))}</div>;
-
-    const thirdPartyTab = <div className="thin-scrollbar max-h-[52vh] space-y-2 overflow-auto">{thirdPartyPlugins.length === 0 ? emptyHint(t("plugins.noThirdParty")) : thirdPartyPlugins.map((record) => row(record.id, <Puzzle className="size-4" />, record.name, record.version, record.description || record.url, installedControls(record)))}</div>;
-
-    const tabs = [
-        { key: "official", label: t("plugins.official"), children: officialTab },
-        ...(localPlugins.length > 0 ? [{ key: "local", label: t("plugins.local"), children: localTab }] : []),
-        { key: "third", label: t("plugins.thirdParty"), children: thirdPartyTab },
-    ];
-
     return (
         <Modal title={t("plugins.title")} open={open} onCancel={onClose} footer={null} centered width={640}>
             <div className="space-y-3">
@@ -193,7 +182,7 @@ export function CanvasPluginManagerModal({ open, onClose }: { open: boolean; onC
                     <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-500" />
                     <span>{t("plugins.warning")}</span>
                 </div>
-                <Tabs defaultActiveKey="official" items={tabs} />
+                <Tabs defaultActiveKey="official" items={[{ key: "official", label: t("plugins.official"), children: officialTab }]} />
             </div>
         </Modal>
     );

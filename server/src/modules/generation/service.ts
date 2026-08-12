@@ -1,14 +1,16 @@
-import type { GenerationJob, JobStatus, User } from "@prisma/client";
+import type { GenerationJob, Model, Upload, User } from "@prisma/client";
+import { parseBuffer } from "music-metadata";
 
 import { prisma } from "../../db.js";
 import { env } from "../../env.js";
 import { ApiError } from "../../http/response.js";
 import { logger } from "../../logger.js";
 import { toJson } from "../audit.js";
-import { getObjectBuffer, presignDownload } from "../storage/s3.js";
-import { resolveJobFiles, saveGeneratedFile } from "../storage/uploads.js";
-import { settleJob, settleUnbilledJob } from "../usage/service.js";
-import { editImage, generateImage, generateText } from "./providers/openai.js";
+import { assertUserQuota } from "../quota/service.js";
+import { deleteObject, getObjectBuffer, presignDownload } from "../storage/s3.js";
+import { fileKind, resolveJobFiles, saveGeneratedFile } from "../storage/uploads.js";
+import { settleSucceededJob, settleUnbilledJob, type SettleInput } from "../usage/service.js";
+import { editImage, generateAudio, generateImage, generateText, generateVideo, type VideoReference } from "./providers/openai.js";
 
 /** 运行中任务的取消句柄；进程重启后由启动清理逻辑兜底。 */
 const runningJobs = new Map<string, AbortController>();
@@ -25,6 +27,41 @@ export type CreateJobInput = {
     params?: Record<string, unknown>;
     fileIds?: string[];
 };
+
+type ParamRule = { type?: unknown; values?: unknown; min?: unknown; max?: unknown };
+
+/** 只校验管理员为该模型显式配置的参数，任务归属、文件角色等内部字段不受影响。 */
+function assertModelParams(model: Model, params: Record<string, unknown>) {
+    const schema = model.paramSchema && typeof model.paramSchema === "object" && !Array.isArray(model.paramSchema) ? (model.paramSchema as Record<string, ParamRule>) : {};
+    for (const [key, rule] of Object.entries(schema)) {
+        const value = params[key];
+        if (value === undefined || !rule || typeof rule !== "object") continue;
+        const validType = rule.type === "number" ? typeof value === "number" && Number.isFinite(value) : rule.type === "boolean" ? typeof value === "boolean" : rule.type === "string" || rule.type === "enum" ? typeof value === "string" : true;
+        if (!validType) throw new ApiError("VALIDATION_FAILED", "模型参数类型不正确", { parameter: key });
+        if (rule.type === "enum" && Array.isArray(rule.values) && !rule.values.includes(value)) throw new ApiError("VALIDATION_FAILED", "模型参数不在允许范围内", { parameter: key });
+        if (typeof value === "number" && typeof rule.min === "number" && value < rule.min) throw new ApiError("VALIDATION_FAILED", "模型参数低于允许范围", { parameter: key, min: rule.min });
+        if (typeof value === "number" && typeof rule.max === "number" && value > rule.max) throw new ApiError("VALIDATION_FAILED", "模型参数超过允许范围", { parameter: key, max: rule.max });
+    }
+    if (params.count !== undefined && (typeof params.count !== "number" || !Number.isInteger(params.count) || params.count < 1)) {
+        throw new ApiError("VALIDATION_FAILED", "单次生成数量必须是正整数", { parameter: "count" });
+    }
+    if (model.maxOutputCount && typeof params.count === "number" && params.count > model.maxOutputCount) {
+        throw new ApiError("VALIDATION_FAILED", "单次生成数量超过模型限制", { parameter: "count", maxOutputCount: model.maxOutputCount });
+    }
+}
+
+/** 模型文件限制可以比全局上传限制更严格，在创建任务时按实际上传记录再次校验。 */
+function assertModelFileLimits(model: Model, files: Upload[]) {
+    const limits = model.fileLimits && typeof model.fileLimits === "object" && !Array.isArray(model.fileLimits) ? (model.fileLimits as Record<string, { maxCount?: unknown; maxSizeMb?: unknown }>) : {};
+    for (const kind of ["image", "video", "audio"] as const) {
+        const selected = files.filter((file) => fileKind(file.mimeType) === kind);
+        const limit = limits[kind];
+        if (!limit) continue;
+        if (typeof limit.maxCount === "number" && selected.length > limit.maxCount) throw new ApiError("FILE_COUNT_EXCEEDED", "文件数量超过模型限制", { kind, maxCount: limit.maxCount });
+        const maxSizeMb = typeof limit.maxSizeMb === "number" ? limit.maxSizeMb : undefined;
+        if (maxSizeMb !== undefined && selected.some((file) => file.size > maxSizeMb * 1024 * 1024)) throw new ApiError("FILE_TOO_LARGE", "文件超过模型大小限制", { kind, maxSizeMb });
+    }
+}
 
 /** 结果里只保存对象存储的 key，下发时再签发限时地址，避免地址过期后无法访问。 */
 type JobResult = { text?: string; files?: Array<{ storageKey: string; mimeType: string; size: number }> };
@@ -48,52 +85,56 @@ export async function publicJob(job: GenerationJob) {
     };
 }
 
-/** 用户并发保护：排队中的任务同样计入名额，视频另有更严格的单独上限。 */
-async function assertUserConcurrency(userId: string, capability: CreateJobInput["capability"]) {
-    const active = { userId, status: { in: ["queued", "running"] as JobStatus[] } };
-    const running = await prisma.generationJob.count({ where: active });
-    if (running >= env.userMaxConcurrentJobs) throw new ApiError("CONCURRENCY_LIMIT", "当前运行任务过多", { limit: env.userMaxConcurrentJobs });
-    if (capability !== "video") return;
-    const videos = await prisma.generationJob.count({ where: { ...active, capability: "video" } });
-    if (videos >= env.userMaxConcurrentVideoJobs) throw new ApiError("CONCURRENCY_LIMIT", "视频任务过多", { limit: env.userMaxConcurrentVideoJobs });
-}
-
 /** 创建生成任务；同一用户的相同 requestId 直接返回已存在任务，不重复创建也不重复计费。 */
 export async function createJob(user: User, input: CreateJobInput) {
-    const existing = await prisma.generationJob.findUnique({ where: { userId_requestId: { userId: user.id, requestId: input.requestId } } });
-    if (existing) return existing;
-
     const model = await prisma.model.findUnique({ where: { id: input.modelId }, include: { provider: true } });
     if (!model || !model.enabled || !model.provider.enabled) throw new ApiError("MODEL_UNAVAILABLE", "模型不可用");
+    if (model.provider.apiFormat === "gemini") throw new ApiError("MODEL_UNAVAILABLE", "Gemini 原生协议尚未接入后台网关");
     if (model.capability !== input.capability) throw new ApiError("VALIDATION_FAILED", "模型能力与请求不一致");
-    if (model.maxConcurrency && (await prisma.generationJob.count({ where: { modelId: model.id, status: { in: ["queued", "running"] } } })) >= model.maxConcurrency) {
-        throw new ApiError("SERVICE_BUSY", "该模型当前繁忙");
-    }
-    await assertUserConcurrency(user.id, input.capability);
-
+    assertModelParams(model, input.params ?? {});
     if (input.projectId) {
         const project = await prisma.project.findUnique({ where: { id: input.projectId } });
         if (!project || project.userId !== user.id) throw new ApiError("NOT_FOUND", "项目不存在");
     }
 
     const files = await resolveJobFiles(user.id, input.fileIds || []);
-    if (files.length && input.capability !== "image") throw new ApiError("VALIDATION_FAILED", "当前能力暂不支持参考文件");
+    assertModelFileLimits(model, files);
+    const onlyImages = files.every((file) => fileKind(file.mimeType) === "image");
+    if (files.length && input.capability !== "video" && !((input.capability === "image" || input.capability === "text") && onlyImages)) {
+        throw new ApiError("VALIDATION_FAILED", "当前能力暂不支持参考文件");
+    }
+    if (input.capability === "video" && model.provider.apiFormat !== "ark") {
+        if (!onlyImages) throw new ApiError("FILE_TYPE_NOT_ALLOWED", "OpenAI 视频只支持参考图片");
+        if (files.length > 1) throw new ApiError("FILE_COUNT_EXCEEDED", "OpenAI 视频只支持一张参考图", { maxCount: 1 });
+    }
 
-    const job = await prisma.generationJob.create({
-        data: {
-            requestId: input.requestId,
-            userId: user.id,
-            projectId: input.projectId ?? null,
-            projectNameSnapshot: input.projectName ?? null,
-            nodeId: input.nodeId ?? null,
-            source: input.source,
-            modelId: model.id,
-            capability: input.capability,
-            promptText: input.prompt,
-            params: toJson({ ...(input.params ?? {}), fileIds: files.map((file) => file.id) }),
-        },
+    const { job, created } = await prisma.$transaction(async (tx) => {
+        // 用户锁保证相同 requestId 与用户并发检查原子化；模型锁保证全局模型并发不会被并行请求突破。
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`generation:user:${user.id}`}, 0))`;
+        const existing = await tx.generationJob.findUnique({ where: { userId_requestId: { userId: user.id, requestId: input.requestId } } });
+        if (existing) return { job: existing, created: false };
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`generation:model:${model.id}`}, 0))`;
+        if (model.maxConcurrency && (await tx.generationJob.count({ where: { modelId: model.id, status: { in: ["queued", "running"] } } })) >= model.maxConcurrency) {
+            throw new ApiError("SERVICE_BUSY", "该模型当前繁忙");
+        }
+        await assertUserQuota(tx, user, input.capability);
+        const createdJob = await tx.generationJob.create({
+            data: {
+                requestId: input.requestId,
+                userId: user.id,
+                projectId: input.projectId ?? null,
+                projectNameSnapshot: input.projectName ?? null,
+                nodeId: input.nodeId ?? null,
+                source: input.source,
+                modelId: model.id,
+                capability: input.capability,
+                promptText: input.prompt,
+                params: toJson({ ...(input.params ?? {}), fileIds: files.map((file) => file.id) }),
+            },
+        });
+        return { job: createdJob, created: true };
     });
-    void runJob(job.id);
+    if (created) void runJob(job.id);
     return job;
 }
 
@@ -104,41 +145,108 @@ export async function createJob(user: User, input: CreateJobInput) {
 async function runJob(jobId: string) {
     const controller = new AbortController();
     runningJobs.set(jobId, controller);
-    const timeout = setTimeout(() => controller.abort(new Error("PROVIDER_TIMEOUT")), env.providerTimeoutMs);
+    let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
-        const job = await prisma.generationJob.update({ where: { id: jobId }, data: { status: "running", startedAt: new Date() }, include: { model: { include: { provider: true } } } });
+        const claimed = await prisma.generationJob.updateMany({ where: { id: jobId, status: "queued" }, data: { status: "running", startedAt: new Date() } });
+        if (!claimed.count) return;
+        const job = await prisma.generationJob.findUniqueOrThrow({ where: { id: jobId }, include: { model: { include: { provider: true } } } });
+        timeout = setTimeout(() => controller.abort(new Error("PROVIDER_TIMEOUT")), job.capability === "video" ? env.providerVideoTimeoutMs : env.providerTimeoutMs);
         const params = (job.params || {}) as Record<string, unknown>;
         if (job.capability === "text") {
-            const result = await generateText(job.model.provider, job.model, job.promptText, params, controller.signal);
-            await finishSucceeded(jobId, result.providerRequestId, { text: result.text });
-            await settleJob(jobId, { providerUsage: result.usage, outputText: result.text });
+            const result = await runText(job.userId, job.model.provider, job.model, job.promptText, params, controller.signal);
+            await completeSucceededJob(jobId, { providerUsage: result.usage, inputText: textUsageInput(params, job.promptText), outputText: result.text }, result.providerRequestId, { text: result.text });
         } else if (job.capability === "image") {
             const result = await runImage(job.userId, jobId, job.model.provider, job.model, job.promptText, params, controller.signal);
-            await finishSucceeded(jobId, result.providerRequestId, { files: result.files });
-            await settleJob(jobId, {
+            await completeSucceededJob(jobId, {
                 providerUsage: result.usage,
                 media: { images: result.files.length, imageSize: typeof params.size === "string" ? params.size : undefined, imageQuality: typeof params.quality === "string" ? params.quality : undefined },
-            });
+            }, result.providerRequestId, { files: result.files });
+        } else if (job.capability === "audio") {
+            const result = await generateAudio(job.model.provider, job.model, job.promptText, params, controller.signal);
+            const saved = await saveGeneratedFile(job.userId, jobId, result.data, result.mimeType);
+            const audioSeconds = await readAudioDuration(result.data, result.mimeType);
+            await completeSucceededJob(jobId, { media: { audioCharacters: Array.from(job.promptText).length, ...(audioSeconds ? { audioSeconds } : {}) } }, result.providerRequestId, { files: [{ storageKey: saved.storageKey, mimeType: saved.mimeType, size: saved.size }] });
+        } else if (job.capability === "video") {
+            const result = await runVideo(job.userId, jobId, job.model.provider, job.model, job.promptText, params, controller.signal);
+            const saved = await saveGeneratedFile(job.userId, jobId, result.data, result.mimeType);
+            await completeSucceededJob(jobId, { media: { videos: 1, videoSeconds: result.seconds ?? (typeof params.seconds === "number" ? params.seconds : undefined), videoResolution: typeof params.resolution === "string" ? params.resolution : undefined } }, result.providerRequestId, { files: [{ storageKey: saved.storageKey, mimeType: saved.mimeType, size: saved.size }] });
         } else {
             throw new ApiError("MODEL_UNAVAILABLE", "该能力尚未接入后台网关");
         }
     } catch (error) {
         await finishFailed(jobId, error);
     } finally {
-        clearTimeout(timeout);
+        if (timeout) clearTimeout(timeout);
         runningJobs.delete(jobId);
     }
+}
+
+async function runVideo(userId: string, jobId: string, provider: Parameters<typeof generateVideo>[0], model: Parameters<typeof generateVideo>[1], prompt: string, params: Record<string, unknown>, signal: AbortSignal) {
+    const fileRoles = Array.isArray(params.fileRoles) ? params.fileRoles : [];
+    const roles = new Map(
+        fileRoles.flatMap((item) => {
+            if (!item || typeof item !== "object") return [];
+            const { id, role } = item as { id?: unknown; role?: unknown };
+            if (typeof id !== "string" || (role !== "reference_image" && role !== "reference_video" && role !== "reference_audio")) return [];
+            return [[id, role] as const];
+        }),
+    );
+    const fileIds = Array.isArray(params.fileIds) ? (params.fileIds as string[]) : [];
+    const uploads = await prisma.upload.findMany({ where: { id: { in: fileIds }, userId, status: "ready" } });
+    const references: VideoReference[] = await Promise.all(
+        uploads.map(async (upload) => ({
+            data: await getObjectBuffer(upload.storageKey),
+            mimeType: upload.mimeType,
+            filename: upload.storageKey.split("/").pop() || "reference",
+            role: roles.get(upload.id) || (fileKind(upload.mimeType) === "image" ? "reference_image" : fileKind(upload.mimeType) === "video" ? "reference_video" : "reference_audio"),
+        })),
+    );
+    return generateVideo(provider, model, prompt, params, references, signal, async (providerRequestId) => {
+        await prisma.generationJob.update({ where: { id: jobId }, data: { providerRequestId } });
+    });
+}
+
+/** 音频格式解析失败不影响生成结果，只是不参与按分钟计价；字符计价仍可正常使用。 */
+async function readAudioDuration(data: Buffer, mimeType: string) {
+    try {
+        const metadata = await parseBuffer(data, { mimeType });
+        return metadata.format.duration && Number.isFinite(metadata.format.duration) ? metadata.format.duration : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+/** 文本任务允许携带图片参考，由后台读取后以内联图片交给多模态文本模型。 */
+async function runText(userId: string, provider: Parameters<typeof generateText>[0], model: Parameters<typeof generateText>[1], prompt: string, params: Record<string, unknown>, signal: AbortSignal) {
+    const fileIds = Array.isArray(params.fileIds) ? (params.fileIds as string[]) : [];
+    const uploads = await prisma.upload.findMany({ where: { id: { in: fileIds }, userId, status: "ready" } });
+    const references = await Promise.all(uploads.map(async (upload) => ({ data: await getObjectBuffer(upload.storageKey), mimeType: upload.mimeType })));
+    return generateText(provider, model, prompt, params, signal, references);
+}
+
+/** Token 估算使用完整文本消息，保留角色边界，避免多轮对话只计算最后一条提示词。 */
+function textUsageInput(params: Record<string, unknown>, prompt: string) {
+    if (!Array.isArray(params.messages)) return prompt;
+    const lines = params.messages.flatMap((item) => {
+        if (!item || typeof item !== "object") return [];
+        const { role, content } = item as { role?: unknown; content?: unknown };
+        return typeof role === "string" && typeof content === "string" && content.trim() ? [`${role}: ${content}`] : [];
+    });
+    return lines.length ? lines.join("\n") : prompt;
 }
 
 /** 有参考文件时走图片编辑，否则走文生图；结果一律写入对象存储，不落库。 */
 async function runImage(userId: string, jobId: string, provider: Parameters<typeof generateImage>[0], model: Parameters<typeof generateImage>[1], prompt: string, params: Record<string, unknown>, signal: AbortSignal) {
     const fileIds = Array.isArray(params.fileIds) ? (params.fileIds as string[]) : [];
-    const uploads = await prisma.upload.findMany({ where: { id: { in: fileIds } } });
+    const maskFileId = typeof params.maskFileId === "string" ? params.maskFileId : "";
+    const uploads = await prisma.upload.findMany({ where: { id: { in: fileIds }, userId, status: "ready" } });
     const references = await Promise.all(
-        uploads.map(async (upload) => ({ data: await getObjectBuffer(upload.storageKey), mimeType: upload.mimeType, filename: upload.storageKey.split("/").pop() || "reference" })),
+        uploads.filter((upload) => upload.id !== maskFileId).map(async (upload) => ({ data: await getObjectBuffer(upload.storageKey), mimeType: upload.mimeType, filename: upload.storageKey.split("/").pop() || "reference" })),
     );
+    const maskUpload = uploads.find((upload) => upload.id === maskFileId);
+    const mask = maskUpload ? { data: await getObjectBuffer(maskUpload.storageKey), mimeType: maskUpload.mimeType, filename: maskUpload.storageKey.split("/").pop() || "mask.png" } : undefined;
 
-    const result = references.length ? await editImage(provider, model, prompt, params, references, signal) : await generateImage(provider, model, prompt, params, signal);
+    const result = references.length ? await editImage(provider, model, prompt, params, references, signal, mask) : await generateImage(provider, model, prompt, params, signal);
     const files = await Promise.all(
         result.images.map(async (image) => {
             const saved = await saveGeneratedFile(userId, jobId, image.data, image.mimeType);
@@ -148,21 +256,31 @@ async function runImage(userId: string, jobId: string, provider: Parameters<type
     return { files, providerRequestId: result.providerRequestId, usage: result.usage };
 }
 
-/** 写入成功状态与结果。 */
-async function finishSucceeded(jobId: string, providerRequestId: string | undefined, result: JobResult) {
-    await prisma.generationJob.update({ where: { id: jobId }, data: { status: "succeeded", finishedAt: new Date(), providerRequestId: providerRequestId ?? null, result: toJson(result) } });
+/** 任务被取消或结算失败时，删除已经写入但不会再被引用的生成结果。 */
+async function discardResult(result: JobResult) {
+    await Promise.all((result.files || []).map((file) => deleteObject(file.storageKey).catch(() => undefined)));
+}
+
+/** 成功状态、结果和费用必须同时提交；任一环节失败都不能留下“成功但无费用”的任务。 */
+async function completeSucceededJob(jobId: string, input: SettleInput, providerRequestId: string | undefined, result: JobResult) {
+    try {
+        const completed = await settleSucceededJob(jobId, input, { providerRequestId, result });
+        if (!completed) await discardResult(result);
+    } catch (error) {
+        await discardResult(result);
+        throw error;
+    }
 }
 
 /** 把供应商异常转换为稳定错误代码；被取消的任务不覆盖其 cancelled 状态。 */
 async function finishFailed(jobId: string, error: unknown) {
-    const current = await prisma.generationJob.findUnique({ where: { id: jobId } });
-    if (!current || current.status === "cancelled") return;
     const aborted = error instanceof Error && error.name === "AbortError";
     const timedOut = aborted || (error instanceof Error && error.message === "PROVIDER_TIMEOUT");
     const code = error instanceof ApiError ? error.code : timedOut ? "PROVIDER_TIMEOUT" : "PROVIDER_ERROR";
     const detail = error instanceof Error ? error.message : String(error);
+    const updated = await prisma.generationJob.updateMany({ where: { id: jobId, status: "running" }, data: { status: "failed", finishedAt: new Date(), errorCode: code, errorDetail: detail } });
+    if (!updated.count) return;
     logger.warn("生成任务失败", { jobId, code });
-    await prisma.generationJob.update({ where: { id: jobId }, data: { status: "failed", finishedAt: new Date(), errorCode: code, errorDetail: detail } });
     // 失败任务同样留下金额为 0 的记录，管理员按状态汇总时不会漏掉这次调用。
     await settleUnbilledJob(jobId, `任务失败：${code}`);
 }
@@ -171,11 +289,11 @@ async function finishFailed(jobId: string, error: unknown) {
 export async function cancelJob(userId: string, jobId: string) {
     const job = await prisma.generationJob.findUnique({ where: { id: jobId } });
     if (!job || job.userId !== userId) throw new ApiError("NOT_FOUND", "任务不存在");
-    if (job.status !== "queued" && job.status !== "running") throw new ApiError("JOB_NOT_CANCELABLE", "任务已结束");
-    const updated = await prisma.generationJob.update({ where: { id: jobId }, data: { status: "cancelled", finishedAt: new Date() } });
+    const changed = await prisma.generationJob.updateMany({ where: { id: jobId, userId, status: { in: ["queued", "running"] } }, data: { status: "cancelled", finishedAt: new Date() } });
+    if (!changed.count) throw new ApiError("JOB_NOT_CANCELABLE", "任务已结束");
     runningJobs.get(jobId)?.abort();
     await settleUnbilledJob(jobId, "用户取消任务");
-    return updated;
+    return prisma.generationJob.findUniqueOrThrow({ where: { id: jobId } });
 }
 
 /** 进程重启后把残留的运行中任务标记为失败，避免永远占用并发名额。 */

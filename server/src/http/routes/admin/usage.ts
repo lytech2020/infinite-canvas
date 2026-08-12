@@ -94,7 +94,9 @@ const csvColumns = [
 /** 转义 CSV 字段，避免逗号、引号和换行破坏结构。 */
 function csvCell(value: unknown) {
     if (value === null || value === undefined) return "";
-    const text = value instanceof Date ? value.toISOString() : String(value);
+    const raw = value instanceof Date ? value.toISOString() : String(value);
+    // 防止邮箱、项目名等用户可控字段被 Excel / Sheets 当作公式执行。
+    const text = /^[=+\-@]/.test(raw) ? `'${raw}` : raw;
     return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
 }
 

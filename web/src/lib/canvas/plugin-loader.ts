@@ -97,7 +97,7 @@ export async function ensurePluginsLoaded() {
     if (loaded) return;
     loaded = true;
     await usePluginStore.persist.rehydrate();
-    const records = usePluginStore.getState().plugins.filter((record) => record.enabled);
+    const records = usePluginStore.getState().plugins.filter((record) => record.enabled && record.official);
     await Promise.all(
         records.map(async (record) => {
             try {
@@ -106,65 +106,6 @@ export async function ensurePluginsLoaded() {
                 activatePlugin(await evaluatePluginSource(source));
             } catch (error) {
                 console.error(`[plugin] 加载失败: ${record.id}`, error);
-            }
-        }),
-    );
-}
-
-// 自动发现 web/public/plugins 下的本地插件:加入列表但默认关闭,
-// 本地开发放好插件文件即可在管理器里看到并一键启用,无需手动填 URL。
-// 已在列表中的:刷新元数据(version/name/description/source)到最新产物,
-// 但保留用户的 enabled 开关 —— 否则改了插件版本后,持久化 store 里的旧 version 永不更新。
-async function loadLocalPlugins() {
-    let urls: unknown;
-    try {
-        const response = await fetch("/plugins/index.json");
-        if (!response.ok) return;
-        urls = await response.json();
-    } catch {
-        return; // 无本地清单(如生产环境未构建插件)则跳过
-    }
-    if (!Array.isArray(urls) || !urls.length) return;
-    const store = usePluginStore.getState();
-    await Promise.all(
-        urls.map(async (url: string) => {
-            try {
-                const source = await fetchPluginSource(withCacheBust(url));
-                const plugin = await evaluatePluginSource(source);
-                const existing = store.plugins.find((item) => item.id === plugin.id);
-                store.upsert({
-                    id: plugin.id,
-                    name: plugin.name || plugin.id,
-                    version: plugin.version || "0.0.0",
-                    description: plugin.description,
-                    url,
-                    source,
-                    enabled: existing?.enabled ?? false, // 保留用户开关,新发现默认关闭
-                    local: true,
-                });
-            } catch (error) {
-                console.error(`[plugin] 本地插件发现失败: ${url}`, error);
-            }
-        }),
-    );
-}
-
-// 本地开发:VITE_DEV_PLUGINS 里的 URL 每次启动都重新拉取(不缓存、不落库),
-// 配合 watch 构建即可「改代码→刷新页面」看到最新插件,无需反复安装。
-async function loadDevPlugins() {
-    const raw = import.meta.env.VITE_DEV_PLUGINS;
-    if (!raw) return;
-    const urls = raw.split(",").map((item) => item.trim()).filter(Boolean);
-    await Promise.all(
-        urls.map(async (url) => {
-            try {
-                const source = await fetchPluginSource(withCacheBust(url));
-                const plugin = await evaluatePluginSource(source);
-                deactivatePlugin(plugin.id);
-                activatePlugin(plugin);
-                console.info(`[plugin] dev 插件已加载: ${plugin.id} (${url})`);
-            } catch (error) {
-                console.error(`[plugin] dev 插件加载失败: ${url}`, error);
             }
         }),
     );

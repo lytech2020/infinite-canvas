@@ -52,7 +52,8 @@ export function publicModel(model: Model) {
 /** 前端模型列表：只返回启用模型，且其所属渠道也必须启用。 */
 export async function listPublicModels() {
     const models = await prisma.model.findMany({
-        where: { enabled: true, provider: { enabled: true } },
+        // Gemini 原生协议适配器尚未接入后台网关，先保留数据库枚举和管理数据，但不向普通用户下发。
+        where: { enabled: true, provider: { enabled: true, apiFormat: { not: "gemini" } } },
         orderBy: [{ capability: "asc" }, { sortOrder: "asc" }, { displayName: "asc" }],
     });
     return models.map(publicModel);

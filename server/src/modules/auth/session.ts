@@ -39,3 +39,8 @@ export async function revokeSession(res: Response, token: string) {
 export async function revokeUserSessions(userId: string) {
     await prisma.session.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date() } });
 }
+
+/** 修改密码后保留当前浏览器，其余设备会话立即失效。 */
+export async function revokeOtherUserSessions(userId: string, currentToken: string) {
+    await prisma.session.updateMany({ where: { userId, tokenHash: { not: hashToken(currentToken) }, revokedAt: null }, data: { revokedAt: new Date() } });
+}

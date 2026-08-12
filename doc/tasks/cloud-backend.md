@@ -1,6 +1,6 @@
 # 云端版最小后台
 
-状态：需求草案，待补充和确认
+状态：实施中；最小后台主体、文本/图片网关及用量成本已完成
 
 ## 1. 背景
 
@@ -425,14 +425,14 @@ Infinite Canvas 将部署为可供外部用户使用的云端产品。当前浏�
 - 画布、素材和历史记录的完整云端同步。
 - 复杂任务队列、优先级和自动扩缩容。
 
-## 15. 待确认项
+## 15. 已确认决策
 
-- [ ] 使用邮箱验证码登录，还是邮箱密码登录。技术方案默认邮箱密码登录，避免依赖 SMTP。
-- [ ] 是否开放用户自助注册。技术方案默认开放，并保留后台开关。
-- [ ] 图片、视频和音频的价格规则由管理员手动录入，还是同步供应商价格。
-- [ ] 图片和视频工作台调用是否保持“独立工作台”分组。
-- [ ] 临时上传文件和生成结果保留 24 小时是否合适。
-- [ ] 第一阶段画布和素材继续保存在浏览器，还是同步纳入云端存储改造。
+- [x] 使用邮箱密码登录，不依赖 SMTP。
+- [x] 默认开放用户自助注册，并提供后台开关。
+- [x] 图片、视频和音频价格由管理员按美元手动录入，暂不自动同步供应商价格。
+- [x] 图片和视频工作台调用保持“独立工作台”分组。
+- [x] 临时上传文件默认保留 24 小时并自动清理；生成结果暂不自动删除。
+- [x] 第一阶段画布和素材继续保存在浏览器，不纳入云端同步改造。
 
 ## 16. 实施记录
 
@@ -481,9 +481,9 @@ Infinite Canvas 将部署为可供外部用户使用的云端产品。当前浏�
 - 未登录时跳过登记；刷新后画布可能早于会话恢复完成，登记前会先等待一次会话恢复，避免漏登记。
 - 实测：创建画布自动落库、重命名同步、删除后名称快照保留且标记软删除。
 - 涉及文件：`server/prisma/schema.prisma`、`server/src/http/routes/projects.ts`、`server/src/index.ts`、`web/src/services/api/projects.ts`、`web/src/stores/canvas/use-canvas-store.ts`。
-- 说明：画布 AI 请求携带 `project_id` 和 `node_id` 需要等生成网关就绪，随第五、第八阶段落地；画布节点 ID 当前已稳定持久化，可直接使用。
+- 说明：画布文本、图片、视频和音频请求都携带 `project_id`、项目名称快照和 `node_id`。
 
-### 第五阶段（进行中）：AI 生成网关 — 文本
+### 第五阶段（已完成）：AI 生成网关 — 文本
 
 - 数据库新增 `generation_jobs` 表和 `JobStatus`、`JobSource` 枚举；`(user_id, request_id)` 唯一约束在数据库层保证防重复，同一 `request_id` 重复提交返回已存在任务。
 - 新增接口：`POST /api/v1/generations`、`GET /api/v1/generations/{id}`、`POST /api/v1/generations/{id}/cancel`。
@@ -492,11 +492,9 @@ Infinite Canvas 将部署为可供外部用户使用的云端产品。当前浏�
 - 服务重启兜底：启动时把残留的 `queued` / `running` 任务标记为失败，避免并发名额永久泄漏。
 - Azure OpenAI 适配与前端 `buildModelApiUrl` 保持一致：`{endpoint}/openai/v1{path}?api-version=`，请求头使用 `api-key`，文本走 Responses 接口；OpenAI 兼容渠道使用 `{base}/v1{path}` 与 Bearer。
 - 画布调用强制携带 `projectId`，任务同时保存 `node_id`、`project_name_snapshot` 和提示词原文。
-- 尚未接入的图片、音频、视频能力会创建任务但立即以 `MODEL_UNAVAILABLE` 结束，不会静默挂起。
 - seed 支持按环境变量引导初始渠道：`AZURE_OPENAI_ENDPOINT`、`AZURE_OPENAI_API_KEY`、`AZURE_OPENAI_DEPLOYMENT`（逗号分隔，格式 `部署名:能力`）、`AZURE_OPENAI_API_VERSION`；密钥加密后写入数据库，重复执行只更新不重复创建。
 - 修复：删除已有调用记录的模型改为返回 `VALIDATION_FAILED` 并提示改用停用，不再抛出外键错误的 `INTERNAL_ERROR`。
 - 实测（真实 Azure OpenAI 渠道）：文本生成成功返回、重复 `requestId` 幂等、取消后状态不被覆盖、重复取消返回 `JOB_NOT_CANCELABLE`、未接入能力返回 `MODEL_UNAVAILABLE`、模型列表不泄漏 Base URL 与部署名、渠道接口只返回密钥掩码。
-- 待办：音频生成、视频生成与任务轮询；Token 与金额记录属于第六阶段。
 
 ### 第七阶段（提前实施）：文件与对象存储
 
@@ -512,11 +510,12 @@ Infinite Canvas 将部署为可供外部用户使用的云端产品。当前浏�
 - 环境变量新增 `S3_ENDPOINT`、`S3_REGION`、`S3_BUCKET`、`S3_ACCESS_KEY_ID`、`S3_SECRET_ACCESS_KEY`、`S3_FORCE_PATH_STYLE`、`UPLOAD_URL_TTL_SECONDS`、`DOWNLOAD_URL_TTL_SECONDS`、`TEMP_FILE_TTL_HOURS`。
 - 涉及文件：`server/src/modules/storage/s3.ts`、`server/src/modules/storage/uploads.ts`、`server/src/http/routes/uploads.ts`。
 
-### 第五阶段（进行中）：AI 生成网关 — 图片
+### 第五阶段（已完成）：AI 生成网关 — 图片
 
 - 实现文生图与图片编辑：请求带 `fileIds` 时走 `/images/edits`（multipart，单图用 `image`、多图用 `image[]`），否则走 `/images/generations`。
+- 图片编辑支持在任务参数中标记蒙版文件，后台提交供应商时使用独立 `mask` 字段。
 - 供应商返回 base64 或临时 URL 都统一取成二进制后写入对象存储，前端只拿到限时下载地址。
-- 参考文件目前只对图片能力开放，其他能力提交 `fileIds` 返回 `VALIDATION_FAILED`。
+- 图片生成和多模态文本支持参考图片；视频支持参考图片、视频和音频，音频生成不接受参考文件。
 - 实测（真实 Azure OpenAI）：文生图返回 1024×1024 PNG 并正确落入对象存储；浏览器直传参考图后做图片编辑，成功返回保持原场景且按提示词修改的结果；超大文件返回 `FILE_TOO_LARGE`、非图音视频类型返回 `FILE_TYPE_NOT_ALLOWED`。
 - 涉及文件：`server/prisma/schema.prisma`、`server/src/modules/generation/service.ts`、`server/src/modules/generation/providers/openai.ts`、`server/src/http/routes/generations.ts`、`server/src/http/routes/admin/models.ts`、`server/src/index.ts`、`server/src/env.ts`、`server/prisma/seed.ts`、`server/.env.example`。
 
@@ -536,7 +535,14 @@ Infinite Canvas 将部署为可供外部用户使用的云端产品。当前浏�
 - 顺带修复：`req.params` 在 Express 5 类型下为 `string | string[]`，此前 `npm run build` 无法通过（Docker 镜像构建会失败），统一改用 `param(req, name)` 读取，现在 `npm run typecheck` 全绿。
 - 实测（真实 Azure OpenAI 渠道）：文本调用按 Token 结算（15 输入 + 38 输出 = $0.00039875，与手算一致）；图片调用记录 `{ images, imageSize, imageQuality }` 并按张计费，变体单价缺失时回退统一单价；供应商未返回 usage 时走 tokenizer 估算并标记来源；重复结算只产生一条记录；改价后历史金额不变；超时失败与用户取消都留下金额为 0 的记录；项目维度汇总、用户列表金额、概览、CSV 导出和提示词搜索及审计日志均验证通过。
 - 涉及文件：`server/prisma/schema.prisma`、`server/prisma/migrations/*_ai_usage_records/`、`server/src/modules/usage/{tokens,pricing,service,query}.ts`、`server/src/http/routes/admin/{overview,usage,prompts,users}.ts`、`server/src/modules/generation/service.ts`、`server/src/modules/catalog/schemas.ts`、`server/src/http/response.ts`、`server/src/index.ts`、`server/package.json`。
-- 待办：视频与音频的计费单位需要等第五阶段接入对应能力后，在执行结果里补齐 `videoSeconds`、`audioSeconds` 等字段，价格规则和结算逻辑已就绪。
+
+### 第五阶段（已完成）：AI 生成网关 — 音频与视频
+
+- 音频通过后台 `/audio/speech` 调用，结果写入对象存储；结算记录保存提示词字符数和实际音频秒数，可按每百万字符、分钟或固定调用费计价。
+- 视频由后台创建并轮询供应商任务，支持 OpenAI/Azure `/videos` 接口和火山方舟 `/contents/generations/tasks` 接口；视频任务使用独立 15 分钟超时。
+- 视频参考图片、视频和音频先上传对象存储，任务参数保存文件角色，后台读取后按供应商格式组装请求。
+- 视频结果下载后写入对象存储，结算记录保存视频数量、请求时长和分辨率，可按个、秒、分辨率变体或固定调用费计价。
+- 前端视频工作台保存本系统任务 ID并恢复轮询，不再保存或轮询供应商任务 ID。
 
 ## 17. 拟实施清单
 
@@ -549,13 +555,13 @@ Infinite Canvas 将部署为可供外部用户使用的云端产品。当前浏�
 
 ### 生成网关
 
-- [ ] 将图片、视频、文本和音频请求迁移到后台代理。（文本已完成，图片、音频、视频待做）
+- [x] 将图片、视频、文本和音频请求迁移到后台代理。
 - [x] 建立生成任务、状态查询和取消接口。
 - [x] 建立临时文件上传和清理流程。
 
 ### 用量与成本
 
-- [x] 读取并标准化不同供应商的 Token 和媒体计费数据。（视频、音频的媒体单位随对应能力接入补齐）
+- [x] 读取并标准化不同供应商的 Token 和媒体计费数据。
 - [x] 供应商不返回 Token 时，按模型 tokenizer 在后台估算并记录估算来源。
 - [x] 实现价格快照和高精度金额计算。
 - [x] 实现用户、项目、模型和能力维度的汇总查询。
@@ -563,20 +569,21 @@ Infinite Canvas 将部署为可供外部用户使用的云端产品。当前浏�
 
 ### 管理后台
 
-- [x] 实现用量与金额概览。（后台接口已完成，管理界面在第九阶段）
+- [x] 实现用量与金额概览及管理界面。
 - [x] 实现用户列表和账号状态管理。
 - [x] 实现用户项目列表和项目调用明细。
+- [x] 实现账户每日调用、每月美元额度及普通/视频并发限额配置，并在任务创建前强制检查。
 - [x] 实现管理员提示词查看、关键词搜索及查看审计。
 - [x] 提示词长期保存，且不支持批量导出。
-- [x] 实现渠道、模型、价格和并发配置。（后台接口已完成，管理界面在第九阶段）
+- [x] 实现渠道、模型、价格和并发配置及管理界面。
 
 ### 云端前端
 
 - [x] 接入登录和当前用户信息。
-- [ ] 接入后台模型列表和生成任务接口。
-- [ ] 所有画布 AI 请求携带稳定 `project_id`。
-- [ ] 接入稳定错误代码的中日文提示。
-- [ ] 按 `cloud-frontend.md` 完成云端界面精简。
+- [x] 接入后台模型列表和生成任务接口。
+- [x] 所有画布 AI 请求携带稳定 `project_id`。
+- [x] 接入稳定错误代码的中日文提示。
+- [x] 按 `cloud-frontend.md` 完成生成与本地渠道相关的云端界面精简、隐私说明和插件白名单限制。
 
 ## 18. 验收标准
 
@@ -594,21 +601,17 @@ Infinite Canvas 将部署为可供外部用户使用的云端产品。当前浏�
 - 所有管理员可以查看并按关键词搜索用户提示词，所有查看行为都有审计记录，且不能批量导出提示词。
 - 管理员默认看不到参考文件和生成内容。
 
-## 19. 下次继续（截至第六阶段）
+## 19. 下次继续
 
 ### 当前进度一句话
 
-后台已经能独立完成「登录 → 选模型 → 上传参考文件 → 创建生成任务 → 调用 Azure OpenAI → 结算金额 → 管理员查询」的完整链路，文本和图片两种能力已用真实渠道跑通；**前端仍在用浏览器本地渠道配置直连 AI 服务，没有走后台**。
+后台和前端已经完成「账号 → 后台模型与价格 → 参考文件上传 → 四类生成任务 → 对象存储结果 → 用量结算 → 管理后台」链路；浏览器不再保存或使用供应商渠道密钥。
 
 ### 待办按优先级
 
-1. **前端切到后台生成网关**（`cloud-frontend.md` 的「AI 服务」一节）。这是当前最大的缺口：不做完，「普通用户无法获得 API Key」和「每次调用都能关联金额」两条验收标准都不成立，而且用户在前端的每一次生成目前都不产生计费记录。落地要点：
-   - 模型下拉改读 `GET /api/v1/models`，删除前端渠道与密钥配置界面，关闭 `/config` 路由。
-   - 生成改为 `POST /api/v1/generations` + 轮询 `GET /api/v1/generations/{id}`，画布调用必须携带 `projectId`、`nodeId` 和稳定 `requestId`（重复提交靠它幂等）。
-   - 参考文件改走 `POST /api/v1/uploads/presign` → 直传对象存储 → `complete` → 提交 `fileIds`。
-   - 错误提示按后台稳定错误代码映射中日文案，不判断错误字符串。
-2. **第五阶段剩下的视频与音频能力**。价格规则和结算逻辑已就绪，只需在执行结果里补 `videoSeconds`、`videoResolution`、`audioSeconds` 等媒体计费单位，传给 `settleJob` 的 `media` 参数即可。
-3. **第九阶段管理界面**。概览、用户与项目、调用明细、提示词搜索、渠道模型价格的后台接口都已完成，纯前端工作。
+1. **本地人工联调**。静态 review 发现的取消状态竞争、幂等并发、成功结算原子性、OpenAI 视频参考图、完整消息 Token 估算、Gemini 暂时隐藏、账号状态审计和空模型文案已经修复；重点验证四类模型、图片蒙版、取消临界点、重复请求、模型级限制以及用量金额。
+2. **英语资源**。当前中文和日语已接入，英语仍只保留语言标识和扩展结构。
+3. **生产部署验收（当前不处理）**。未来确定部署计划后，再验证真实域名、对象存储、Cookie、迁移和备份恢复。
 
 ### 环境提醒
 

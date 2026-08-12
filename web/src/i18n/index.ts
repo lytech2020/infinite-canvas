@@ -15,6 +15,7 @@ import jaVideo from "@/i18n/locales/ja-JP/video";
 import jaSettings from "@/i18n/locales/ja-JP/settings";
 import jaAgent from "@/i18n/locales/ja-JP/agent";
 import jaErrors from "@/i18n/locales/ja-JP/errors";
+import jaPrivacy from "@/i18n/locales/ja-JP/privacy";
 import zhCommon from "@/i18n/locales/zh-CN/common";
 import zhAssets from "@/i18n/locales/zh-CN/assets";
 import zhAuth from "@/i18n/locales/zh-CN/auth";
@@ -28,6 +29,7 @@ import zhVideo from "@/i18n/locales/zh-CN/video";
 import zhSettings from "@/i18n/locales/zh-CN/settings";
 import zhAgent from "@/i18n/locales/zh-CN/agent";
 import zhErrors from "@/i18n/locales/zh-CN/errors";
+import zhPrivacy from "@/i18n/locales/zh-CN/privacy";
 import { useLocaleStore } from "@/stores/use-locale-store";
 
 void i18n.use(initReactI18next).init({
@@ -36,8 +38,8 @@ void i18n.use(initReactI18next).init({
     supportedLngs: appLocales,
     defaultNS: "common",
     resources: {
-        "zh-CN": { common: zhCommon, navigation: zhNavigation, config: zhConfig, home: zhHome, canvas: zhCanvas, prompts: zhPrompts, assets: zhAssets, image: zhImage, video: zhVideo, settings: zhSettings, agent: zhAgent, errors: zhErrors, auth: zhAuth },
-        "ja-JP": { common: jaCommon, navigation: jaNavigation, config: jaConfig, home: jaHome, canvas: jaCanvas, prompts: jaPrompts, assets: jaAssets, image: jaImage, video: jaVideo, settings: jaSettings, agent: jaAgent, errors: jaErrors, auth: jaAuth },
+        "zh-CN": { common: zhCommon, navigation: zhNavigation, config: zhConfig, home: zhHome, canvas: zhCanvas, prompts: zhPrompts, assets: zhAssets, image: zhImage, video: zhVideo, settings: zhSettings, agent: zhAgent, errors: zhErrors, auth: zhAuth, privacy: zhPrivacy },
+        "ja-JP": { common: jaCommon, navigation: jaNavigation, config: jaConfig, home: jaHome, canvas: jaCanvas, prompts: jaPrompts, assets: jaAssets, image: jaImage, video: jaVideo, settings: jaSettings, agent: jaAgent, errors: jaErrors, auth: jaAuth, privacy: jaPrivacy },
     },
     interpolation: { escapeValue: false },
     react: { useSuspense: false },

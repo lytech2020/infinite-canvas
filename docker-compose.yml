@@ -1,31 +1,63 @@
 services:
   app:
-    image: ghcr.io/basketikun/infinite-canvas:latest
+    image: infinite-canvas-web:local
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: infinite-canvas
     ports:
-      - "3000:3000"
+      - "${APP_PORT:-3000}:3000"
     restart: unless-stopped
     depends_on:
-      - server
-    # 统计分析（可选，默认关闭）。每家一个独立变量，填了谁就启用谁，可同时启用多家：
-    # environment:
-    #   ANALYTICS_GA4_ID: G-XXXXXXXXXX                    # Google Analytics 4 衡量 ID
-    #   ANALYTICS_BAIDU_ID: xxxxxxxxxxxxxxxxxxxxxxxxxxxx   # 百度统计站点 ID
+      server:
+        condition: service_healthy
+    environment:
+      ANALYTICS_GA4_ID: ${ANALYTICS_GA4_ID:-}
+      ANALYTICS_BAIDU_ID: ${ANALYTICS_BAIDU_ID:-}
 
-  # 云端版后台。nginx 通过服务名 server 反向代理 /api。
   server:
+    image: infinite-canvas-server:local
     build:
       context: .
       dockerfile: server/Dockerfile
     container_name: infinite-canvas-server
     restart: unless-stopped
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://infinite_canvas:infinite_canvas@db:5432/infinite_canvas
+      DATABASE_URL: ${DATABASE_URL:?请设置 DATABASE_URL}
       NODE_ENV: production
-      ADMIN_EMAIL: admin@example.com
-      ADMIN_PASSWORD: change-me-now
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:?请设置 SECRET_ENCRYPTION_KEY}
+      SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:-ic_session}
+      SESSION_TTL_DAYS: ${SESSION_TTL_DAYS:-30}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:?请设置 ADMIN_EMAIL}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?请设置 ADMIN_PASSWORD}
+      REGISTRATION_OPEN: ${REGISTRATION_OPEN:-true}
+      USER_MAX_CONCURRENT_JOBS: ${USER_MAX_CONCURRENT_JOBS:-2}
+      USER_MAX_CONCURRENT_VIDEO_JOBS: ${USER_MAX_CONCURRENT_VIDEO_JOBS:-1}
+      QUOTA_TIMEZONE: ${QUOTA_TIMEZONE:-Asia/Tokyo}
+      PROVIDER_TIMEOUT_MS: ${PROVIDER_TIMEOUT_MS:-120000}
+      PROVIDER_VIDEO_TIMEOUT_MS: ${PROVIDER_VIDEO_TIMEOUT_MS:-900000}
+      S3_ENDPOINT: ${S3_ENDPOINT:?请设置 S3_ENDPOINT}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_BUCKET: ${S3_BUCKET:?请设置 S3_BUCKET}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:?请设置 S3_ACCESS_KEY_ID}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:?请设置 S3_SECRET_ACCESS_KEY}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-false}
+      UPLOAD_URL_TTL_SECONDS: ${UPLOAD_URL_TTL_SECONDS:-300}
+      DOWNLOAD_URL_TTL_SECONDS: ${DOWNLOAD_URL_TTL_SECONDS:-3600}
+      TEMP_FILE_TTL_HOURS: ${TEMP_FILE_TTL_HOURS:-24}
+      AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT:-}
+      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
+      AZURE_OPENAI_DEPLOYMENT: ${AZURE_OPENAI_DEPLOYMENT:-}
+      AZURE_OPENAI_API_VERSION: ${AZURE_OPENAI_API_VERSION:-preview}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/api/v1/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
 
   db:
     image: postgres:16-alpine
@@ -33,10 +65,15 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: infinite_canvas
-      POSTGRES_PASSWORD: infinite_canvas
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请设置 POSTGRES_PASSWORD}
       POSTGRES_DB: infinite_canvas
     volumes:
       - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U infinite_canvas -d infinite_canvas"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
 
 volumes:
   db-data:
