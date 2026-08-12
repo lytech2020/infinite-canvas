@@ -27,7 +27,9 @@ type UnitPrices = Record<string, unknown>;
 
 function price(unitPrices: UnitPrices, key: string) {
     const value = unitPrices[key];
-    return typeof value === "string" && value.trim() ? new Prisma.Decimal(value) : null;
+    if (typeof value !== "string" || !value.trim()) return null;
+    const parsed = new Prisma.Decimal(value);
+    return parsed.gt(0) ? parsed : null;
 }
 
 /** 按尺寸、质量等维度区分的单价表，形如 { "1024x1024:high": "0.167" }；缺省时退回统一单价。 */
@@ -36,10 +38,32 @@ function variantPrice(unitPrices: UnitPrices, key: string, variants: string[]) {
     if (table && typeof table === "object") {
         for (const variant of variants) {
             const value = (table as Record<string, unknown>)[variant];
-            if (typeof value === "string" && value.trim()) return new Prisma.Decimal(value);
+            if (typeof value === "string" && value.trim()) {
+                const parsed = new Prisma.Decimal(value);
+                if (parsed.gt(0)) return parsed;
+            }
         }
     }
     return null;
+}
+
+/** 创建任务前确认当前参数能命中至少一种计价方式，避免真实调用被静默记为 0。 */
+export function hasPriceForRequest(rule: ModelPrice, capability: "text" | "image" | "video" | "audio", params: Record<string, unknown>) {
+    const unitPrices = (rule.unitPrices || {}) as UnitPrices;
+    if (rule.pricingType === "fixed") return Boolean(price(unitPrices, "perCall"));
+    if (rule.pricingType !== (capability === "text" ? "token" : capability)) return false;
+    if (capability === "text") return Boolean(price(unitPrices, "inputPerMillionTokens") && price(unitPrices, "outputPerMillionTokens"));
+    if (capability === "image") {
+        const size = typeof params.size === "string" ? params.size : "";
+        const quality = typeof params.quality === "string" ? params.quality : "";
+        return Boolean(variantPrice(unitPrices, "perImageByVariant", [`${size}:${quality}`, size].filter(Boolean)) || price(unitPrices, "perImage"));
+    }
+    if (capability === "video") {
+        const resolution = typeof params.resolution === "string" ? params.resolution : "";
+        const perSecond = variantPrice(unitPrices, "perVideoSecondByResolution", resolution ? [resolution] : []) || price(unitPrices, "perVideoSecond");
+        return Boolean(price(unitPrices, "perVideo") || (typeof params.seconds === "number" && params.seconds > 0 && perSecond));
+    }
+    return Boolean(price(unitPrices, "perMillionCharacters"));
 }
 
 function line(lines: CalculationLine[], item: string, unit: string, quantity: Prisma.Decimal, unitPrice: Prisma.Decimal, amount: Prisma.Decimal) {

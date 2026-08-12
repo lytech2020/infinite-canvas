@@ -3,21 +3,25 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 import { env } from "../../env.js";
 
-const client = new S3Client({
-    region: env.s3Region,
-    endpoint: env.s3Endpoint,
-    forcePathStyle: env.s3ForcePathStyle,
-    credentials: { accessKeyId: env.s3AccessKeyId, secretAccessKey: env.s3SecretAccessKey },
-});
+const createClient = (endpoint: string) =>
+    new S3Client({
+        region: env.s3Region,
+        endpoint,
+        forcePathStyle: env.s3ForcePathStyle,
+        credentials: { accessKeyId: env.s3AccessKeyId, secretAccessKey: env.s3SecretAccessKey },
+    });
+
+const client = createClient(env.s3Endpoint);
+const publicClient = env.s3PublicEndpoint === env.s3Endpoint ? client : createClient(env.s3PublicEndpoint);
 
 /** 签发限时上传地址；绑定内容类型和长度，避免上传地址被挪作他用。 */
 export function presignUpload(key: string, mimeType: string, size: number) {
-    return getSignedUrl(client, new PutObjectCommand({ Bucket: env.s3Bucket, Key: key, ContentType: mimeType, ContentLength: size }), { expiresIn: env.uploadUrlTtlSeconds });
+    return getSignedUrl(publicClient, new PutObjectCommand({ Bucket: env.s3Bucket, Key: key, ContentType: mimeType, ContentLength: size }), { expiresIn: env.uploadUrlTtlSeconds });
 }
 
 /** 签发限时下载地址；生成结果不公开可读，一律通过限时地址访问。 */
 export function presignDownload(key: string, expiresIn = env.downloadUrlTtlSeconds) {
-    return getSignedUrl(client, new GetObjectCommand({ Bucket: env.s3Bucket, Key: key }), { expiresIn });
+    return getSignedUrl(publicClient, new GetObjectCommand({ Bucket: env.s3Bucket, Key: key }), { expiresIn });
 }
 
 /** 读取对象元数据，用于核对前端上传结果的真实大小和类型。 */
@@ -29,6 +33,12 @@ export async function headObject(key: string) {
 /** 读取对象内容，用于把参考文件转发给供应商。 */
 export async function getObjectBuffer(key: string) {
     const object = await client.send(new GetObjectCommand({ Bucket: env.s3Bucket, Key: key }));
+    return Buffer.from(await object.Body!.transformToByteArray());
+}
+
+/** 只读取对象开头用于真实文件类型识别，避免为校验下载整个大文件。 */
+export async function getObjectPrefix(key: string, bytes = 4_100) {
+    const object = await client.send(new GetObjectCommand({ Bucket: env.s3Bucket, Key: key, Range: `bytes=0-${bytes - 1}` }));
     return Buffer.from(await object.Body!.transformToByteArray());
 }
 

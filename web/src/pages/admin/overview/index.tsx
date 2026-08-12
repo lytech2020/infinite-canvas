@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { DatePicker, Empty, Segmented, Skeleton, Table, Tag } from "antd";
+import { Alert, DatePicker, Empty, Segmented, Skeleton, Table, Tag } from "antd";
 import type { Dayjs } from "dayjs";
 
 import { AdminPageHeader, capabilityLabels, integer, MetricCard, statusLabels, usd } from "@/pages/admin/components";
@@ -40,6 +40,7 @@ export default function AdminOverviewPage() {
                 <Skeleton active />
             ) : (
                 <>
+                    {data?.modelsMissingPrice ? <Alert className="mb-4" type="warning" showIcon message={`${data.modelsMissingPrice} 个已启用模型缺少当前生效的价格规则，用户暂时无法调用。`} /> : null}
                     <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                         <MetricCard label="累计用户" value={integer(data?.users.total)} secondary={`近 30 天活跃 ${integer(data?.users.activeIn30Days)} 人`} />
                         <MetricCard label="正在执行" value={integer(data?.runningJobs)} secondary="排队中与生成中的任务" />

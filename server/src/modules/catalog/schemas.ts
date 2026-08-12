@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /** 金额一律用字符串保存，避免 JSON 浮点数丢精度。 */
-const priceValue = z.string().regex(/^\d+(\.\d{1,10})?$/, "单价必须是最多 10 位小数的非负数");
+const priceValue = z.string().regex(/^(?!0+(?:\.0+)?$)\d+(?:\.\d{1,10})?$/, "单价必须是大于 0、最多 10 位小数的数字");
 
 /** 用户可调参数定义；前端据此渲染参数控件和范围。 */
 export const paramSchema = z.record(
@@ -67,9 +67,20 @@ export const modelBody = z.object({
     sortOrder: z.number().int().optional(),
 });
 
-export const priceBody = z.object({
-    pricingType: z.enum(["token", "image", "video", "audio", "fixed"]),
-    unitPrices: unitPricesSchema,
-    effectiveFrom: z.coerce.date(),
-    effectiveTo: z.coerce.date().nullish(),
-});
+export const priceBody = z
+    .object({
+        pricingType: z.enum(["token", "image", "video", "audio", "fixed"]),
+        unitPrices: unitPricesSchema,
+        effectiveFrom: z.coerce.date(),
+        effectiveTo: z.coerce.date().nullish(),
+    })
+    .superRefine(({ pricingType, unitPrices }, ctx) => {
+        const valid =
+            (pricingType === "fixed" && Boolean(unitPrices.perCall)) ||
+            (pricingType === "token" && Boolean(unitPrices.inputPerMillionTokens && unitPrices.outputPerMillionTokens)) ||
+            (pricingType === "image" && Boolean(unitPrices.perImage || Object.keys(unitPrices.perImageByVariant || {}).length)) ||
+            (pricingType === "video" && Boolean(unitPrices.perVideo || unitPrices.perVideoSecond || Object.keys(unitPrices.perVideoSecondByResolution || {}).length)) ||
+            // 字符数在调用前始终可得；分钟价可作为附加项，但不能单独承担兜底计费。
+            (pricingType === "audio" && Boolean(unitPrices.perMillionCharacters));
+        if (!valid) ctx.addIssue({ code: "custom", path: ["unitPrices"], message: "当前计价方式缺少可用单价" });
+    });

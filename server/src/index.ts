@@ -3,7 +3,7 @@ import express from "express";
 
 import { env } from "./env.js";
 import { attachUser, requireAdmin, requireUser } from "./http/auth-middleware.js";
-import { errorHandler } from "./http/response.js";
+import { ApiError, errorHandler } from "./http/response.js";
 import { adminModelsRouter } from "./http/routes/admin/models.js";
 import { adminOverviewRouter } from "./http/routes/admin/overview.js";
 import { adminPromptsRouter } from "./http/routes/admin/prompts.js";
@@ -26,6 +26,10 @@ if (env.isProduction) app.set("trust proxy", 1);
 app.use(express.json({ limit: "1mb" }));
 app.use(cookieParser());
 app.use(attachUser);
+app.use("/api/v1", (req, _res, next) => {
+    if (["GET", "HEAD", "OPTIONS"].includes(req.method) || req.get("X-Requested-With") === "infinite-canvas") return next();
+    next(new ApiError("FORBIDDEN", "请求来源校验失败"));
+});
 
 app.get("/api/v1/health", (_req, res) => {
     res.json({ data: { ok: true } });
@@ -47,11 +51,13 @@ app.use("/api/v1/admin/settings", admin, adminSettingsRouter);
 
 app.use(errorHandler);
 
-app.listen(env.port, async () => {
-    await releaseStaleJobs();
-    await cleanupExpiredUploads().catch((error) => logger.warn("清理过期上传失败", { message: error instanceof Error ? error.message : String(error) }));
+// 遗留任务清理完成后才开始监听；清理失败只记录日志，不让容器陷入重启循环。
+await releaseStaleJobs().catch((error) => logger.error("清理遗留生成任务失败", { error: error instanceof Error ? error.message : String(error) }));
+
+app.listen(env.port, () => {
+    void cleanupExpiredUploads().catch((error) => logger.warn("清理过期上传失败", { error: error instanceof Error ? error.message : String(error) }));
     const cleanupTimer = setInterval(
-        () => void cleanupExpiredUploads().catch((error) => logger.warn("清理过期上传失败", { message: error instanceof Error ? error.message : String(error) })),
+        () => void cleanupExpiredUploads().catch((error) => logger.warn("清理过期上传失败", { error: error instanceof Error ? error.message : String(error) })),
         60 * 60 * 1000,
     );
     cleanupTimer.unref();

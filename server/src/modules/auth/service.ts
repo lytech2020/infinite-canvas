@@ -22,7 +22,14 @@ function normalizeEmail(email: string) {
 export async function createUser(email: string, password: string) {
     const normalized = normalizeEmail(email);
     if (await prisma.user.findUnique({ where: { email: normalized } })) throw new ApiError("EMAIL_ALREADY_EXISTS", "该邮箱已注册");
-    return prisma.user.create({ data: { email: normalized, passwordHash: await argon2.hash(password) } });
+    return prisma.user.create({
+        data: {
+            email: normalized,
+            passwordHash: await argon2.hash(password),
+            dailyCallLimit: env.defaultDailyCallLimit,
+            monthlyBudgetUsd: env.defaultMonthlyBudgetUsd,
+        },
+    });
 }
 
 /** 注册普通用户。 */

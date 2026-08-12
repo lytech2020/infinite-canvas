@@ -37,44 +37,71 @@ export async function settleSucceededJob(jobId: string, input: SettleInput, succ
     const job = await prisma.generationJob.findUnique({ where: { id: jobId }, include: { model: true } });
     if (!job) return false;
     const usage = resolveUsage(job, input);
-    const rule = await resolvePrice(job.modelId, job.createdAt);
+    const storedParams = job.params && typeof job.params === "object" && !Array.isArray(job.params) ? (job.params as Record<string, unknown>) : {};
+    const pinnedPriceId = typeof storedParams._priceRuleId === "string" ? storedParams._priceRuleId : "";
+    const rule = pinnedPriceId ? await prisma.modelPrice.findFirst({ where: { id: pinnedPriceId, modelId: job.modelId } }) : await resolvePrice(job.modelId, job.createdAt);
     const media = input.media ?? {};
-    const result = rule ? settle(rule, usage.tokens, media) : { amountUsd: new Prisma.Decimal(0), lines: [] };
-    if (!rule) logger.warn("模型缺少生效中的价格规则，本次调用金额记为 0", { jobId, modelId: job.modelId });
+    if (!rule) throw new Error(`任务 ${jobId} 缺少生效中的价格规则`);
+    const result = settle(rule, usage.tokens, media);
+    if (result.amountUsd.lte(0) || !result.lines.length) throw new Error(`任务 ${jobId} 未产生可结算金额`);
+
+    const usageData = {
+        priceSnapshot: toJson({ priceId: rule.id, pricingType: rule.pricingType, currency: rule.currency, unitPrices: rule.unitPrices, effectiveFrom: rule.effectiveFrom }),
+        inputTokens: usage.tokens.inputTokens,
+        cachedTokens: usage.tokens.cachedTokens,
+        outputTokens: usage.tokens.outputTokens,
+        reasoningTokens: usage.tokens.reasoningTokens,
+        totalTokens: usage.tokens.totalTokens,
+        mediaUnits: Object.keys(media).length ? toJson(media) : Prisma.DbNull,
+        usageSource: usage.source,
+        usageEstimationMethod: usage.estimationMethod ?? null,
+        tokenizerName: usage.tokenizerName ?? null,
+        tokenizerVersion: usage.tokenizerVersion ?? null,
+        amountUsd: result.amountUsd,
+        calculationDetail: toJson({ lines: result.lines, priceRuleMissing: false }),
+    };
 
     return prisma.$transaction(async (tx) => {
         const existing = await tx.aiUsageRecord.findUnique({ where: { jobId } });
-        if (existing) return existing.status === "succeeded";
+        if (existing?.status === "succeeded") return "succeeded" as const;
         const updated = await tx.generationJob.updateMany({
             where: { id: jobId, status: "running" },
             data: { status: "succeeded", finishedAt: new Date(), providerRequestId: succeeded.providerRequestId ?? null, result: toJson(succeeded.result) },
         });
-        if (!updated.count) return false;
-        await tx.aiUsageRecord.create({
-            data: {
+        if (updated.count) {
+            await tx.aiUsageRecord.upsert({
+                where: { jobId },
+                create: {
+                    jobId: job.id,
+                    userId: job.userId,
+                    projectId: job.projectId,
+                    modelId: job.modelId,
+                    capability: job.capability,
+                    status: "succeeded",
+                    ...usageData,
+                },
+                update: { status: "succeeded", ...usageData },
+            });
+            return "succeeded" as const;
+        }
+
+        const current = await tx.generationJob.findUnique({ where: { id: jobId }, select: { status: true } });
+        if (current?.status !== "cancelled") return false;
+        // 取消只阻止结果落库；供应商已返回时仍用真实用量覆盖此前的 0 元占位记录。
+        await tx.aiUsageRecord.upsert({
+            where: { jobId },
+            create: {
                 jobId: job.id,
                 userId: job.userId,
                 projectId: job.projectId,
                 modelId: job.modelId,
                 capability: job.capability,
-                status: "succeeded",
-                // 快照价格规则本身，之后管理员改价不会改变这条历史金额
-                priceSnapshot: rule ? toJson({ priceId: rule.id, pricingType: rule.pricingType, currency: rule.currency, unitPrices: rule.unitPrices, effectiveFrom: rule.effectiveFrom }) : Prisma.DbNull,
-                inputTokens: usage.tokens.inputTokens,
-                cachedTokens: usage.tokens.cachedTokens,
-                outputTokens: usage.tokens.outputTokens,
-                reasoningTokens: usage.tokens.reasoningTokens,
-                totalTokens: usage.tokens.totalTokens,
-                mediaUnits: Object.keys(media).length ? toJson(media) : Prisma.DbNull,
-                usageSource: usage.source,
-                usageEstimationMethod: usage.estimationMethod ?? null,
-                tokenizerName: usage.tokenizerName ?? null,
-                tokenizerVersion: usage.tokenizerVersion ?? null,
-                amountUsd: result.amountUsd,
-                calculationDetail: toJson({ lines: result.lines, priceRuleMissing: !rule }),
+                status: "cancelled",
+                ...usageData,
             },
+            update: { status: "cancelled", ...usageData },
         });
-        return true;
+        return "cancelled" as const;
     });
 }
 
@@ -103,7 +130,7 @@ export async function settleUnbilledJob(jobId: string, reason: string) {
             },
         });
     } catch (error) {
-        logger.error("写入未计费记录失败", { jobId, message: error instanceof Error ? error.message : String(error) });
+        logger.error("写入未计费记录失败", { jobId, error: error instanceof Error ? error.message : String(error) });
         return null;
     }
 }

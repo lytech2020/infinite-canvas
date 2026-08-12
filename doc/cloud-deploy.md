@@ -27,13 +27,9 @@ cp .env.example .env
 docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
 ```
 
-`docker-compose.local.yml` 会启动 MinIO、等待其健康并自动创建 `infinite-canvas` bucket；后台容器启动时自动执行 `prisma migrate deploy`。首次启动后执行一次 seed 创建管理员和可选初始 Azure OpenAI 渠道：
+`docker-compose.local.yml` 会启动 MinIO、等待其健康并自动创建 `infinite-canvas` bucket；后台容器启动时自动执行 `prisma migrate deploy` 和幂等 seed，首次启动会创建管理员和可选初始 Azure OpenAI 渠道。seed 只创建不存在的渠道和模型，不会覆盖管理后台里已经修改的地址、密钥或启用状态；seed 配置错误会输出警告但不阻断后台启动。
 
-```bash
-docker compose -f docker-compose.yml -f docker-compose.local.yml exec server node dist/prisma/seed.js
-```
-
-本地配置统一放在根目录 `.env`：`DATABASE_URL` 使用服务名 `db`，`S3_ENDPOINT` 使用服务名 `minio`，每日与每月账户限额按 `QUOTA_TIMEZONE` 重置。`.env` 不提交到 Git。
+本地配置统一放在根目录 `.env`：`DATABASE_URL` 使用服务名 `db`，`S3_ENDPOINT` 使用后台可访问的容器服务名 `http://minio:9000`，`S3_PUBLIC_ENDPOINT` 使用浏览器可访问的 `http://localhost:9000`；每日与每月账户限额按 `QUOTA_TIMEZONE` 重置。自助注册默认关闭，新普通用户默认每日 20 次、每月 10 美元，可通过 `DEFAULT_DAILY_CALL_LIMIT` 和 `DEFAULT_MONTHLY_BUDGET_USD` 调整，之后也可在用户管理中单独设置或清空为不限。`.env` 不提交到 Git。
 
 停止服务但保留数据库和对象存储数据：
 
@@ -46,7 +42,15 @@ docker compose -f docker-compose.yml -f docker-compose.local.yml down
 - 打开 `http://localhost:3000/login`，用 `ADMIN_EMAIL` 登录。
 - 顶部用户菜单应出现「管理后台」入口，进入 `/admin` 能看到数据总览；账号菜单中的「修改密码」可替换初始密码。
 - `curl http://localhost:8787/api/v1/health` 返回 `{"data":{"ok":true}}`。
-- MinIO 控制台位于 `http://localhost:9001`。
+- MinIO 控制台位于 `http://localhost:9001`；本地覆盖文件的默认账号和密码均为 `infinite_canvas`，只用于本机开发，生产环境不要沿用。
+
+修改前端、后台或 Compose 配置后，需重新构建镜像才能生效：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
+```
+
+只刷新浏览器不会把宿主机的新代码复制进已有容器。重建后可用 `docker compose -f docker-compose.yml -f docker-compose.local.yml ps` 检查服务状态，用 `docker compose -f docker-compose.yml -f docker-compose.local.yml logs --tail=200 server app minio` 查看近期日志。
 
 ## 3. 服务器部署
 
@@ -56,21 +60,23 @@ docker compose -f docker-compose.yml -f docker-compose.local.yml down
 
 `POSTGRES_PASSWORD` 与 `DATABASE_URL` 中的密码必须一致；密码包含特殊字符时要在 URL 中进行百分号编码。`.env` 已被 Git 忽略，不要提交真实值。
 
+当前生成任务在后台进程内执行，`releaseStaleJobs` 会在启动时清理遗留任务，因此生产阶段只支持一个 `server` 副本。横向扩容前必须先把任务执行迁移到带租约或心跳的独立队列 Worker。
+
 ```bash
 docker compose up -d --build
 ```
 
-后台容器启动时会自动执行 `prisma migrate deploy`，所以 `server/prisma/migrations/` 必须已随代码提交。首次部署后执行一次 seed 创建管理员和可选初始 Azure OpenAI 渠道：
+后台容器启动时会自动执行 `prisma migrate deploy` 和幂等 seed，所以 `server/prisma/migrations/` 必须已随代码提交。首次部署会创建管理员和可选初始 Azure OpenAI 渠道；后续重启不会覆盖管理员密码、自助注册设置或后台维护过的渠道配置。迁移失败时容器停止，seed 失败时后台继续启动并在容器日志中输出明确警告。
 
-```bash
-docker compose exec server node dist/prisma/seed.js
-```
+升级已有环境前，请确认登录密码符合当前 8–16 位规则；如果数据库中的 `registration_open` 曾经设为 `true`，升级不会擅自覆盖管理员选择，需在管理后台「系统设置」中手动确认是否关闭自助注册。
+
+价格配置必须使用大于 0 的单价。按秒计费的视频请求必须携带有效时长；音频可以增加分钟价，但必须同时配置字符价作为时长解析失败时的确定性计费基线。任务创建后会固定价格规则，在途改价只影响之后创建的任务。
 
 随后登录并从账号菜单修改初始密码。修改成功后，当前浏览器保持登录，其他设备上的旧会话会立即失效。
 
 ### 3.2 对象存储 CORS
 
-浏览器会使用后台签发的限时地址直接上传参考文件，因此 bucket 必须允许站点域名跨域执行 `PUT`、`GET` 和 `HEAD`。以下为通用示例，部署时把域名替换为实际 HTTPS 域名：
+后台通过 `S3_ENDPOINT` 读写对象，浏览器通过基于 `S3_PUBLIC_ENDPOINT` 签发的限时地址直接上传参考文件和读取生成结果；两个地址相同时可以不单独配置 `S3_PUBLIC_ENDPOINT`。bucket 必须允许站点域名跨域执行 `PUT`、`GET` 和 `HEAD`。以下为通用示例，部署时把域名替换为实际 HTTPS 域名：
 
 ```json
 [
@@ -91,6 +97,16 @@ docker compose exec server node dist/prisma/seed.js
 `nginx.conf` 中 `/api` 通过 Docker 内置 DNS 解析服务名 `server`，使用变量延迟解析，因此后台未启动时只影响 `/api`，不会导致前端容器起不来。
 
 生产环境必须使用 HTTPS：会话 Cookie 在 `NODE_ENV=production` 下带 `Secure` 属性，纯 HTTP 访问会导致登录后立即掉线。如果外层还有一层网关，需要透传 `X-Forwarded-Proto`。
+
+`SESSION_COOKIE_SECURE` 默认随生产 Compose 设为 `true`。仅在隔离网络中用 HTTP 临时验收时可显式设为 `false`，正式对外服务必须恢复为 `true` 并启用 HTTPS。
+
+### 3.3 后台集成测试
+
+在 `server/` 目录执行 `npm run test:integration`。测试命令会构建并启动独立的 `infinite-canvas-test` Compose 项目，使用测试专用 PostgreSQL、MinIO 和模拟 AI 供应商，不会调用真实模型或读写开发环境数据；测试结束后默认删除测试容器与数据卷。需要保留现场排查时可执行 `KEEP_TEST_STACK=true npm run test:integration`，排查完成后用 `docker compose -f ../docker-compose.test.yml -p infinite-canvas-test down --volumes` 清理。
+
+完整覆盖范围和人工验收项见[后台集成测试](../docs/content/docs/development/backend-integration-tests.mdx)。当前测试结果为 19 项通过、0 项失败。
+
+生产后台镜像启动时会依次执行数据库迁移和幂等 seed。全新环境会创建初始管理员，已有环境不会覆盖管理员密码或自助注册设置。
 
 当前前端产物按站点根路径 `/` 构建，生产建议使用独立域名或根路径部署，不要直接挂载到 `/canvas-app/` 等子目录。
 
@@ -130,4 +146,7 @@ docker compose exec server node dist/prisma/seed.js
 | 迁移后接口报 `INTERNAL_ERROR`，日志显示某个模型 undefined | `prisma migrate` 会重新生成 Prisma Client，需要重启后台进程才会加载 |
 | 删除模型报「该模型已有调用记录」 | 有历史用量的模型不能删除，改为停用即可从用户模型列表隐藏 |
 | 图片生成失败且日志提示 NoSuchBucket | 对象存储里没有建桶，MinIO 下 `mkdir` 数据目录的一级目录即可 |
+| 后台任务显示成功，但画布提示 `Failed to fetch` | 检查任务返回的签名地址是否使用浏览器可访问的 `S3_PUBLIC_ENDPOINT`，Docker 本地应为 `http://localhost:9000`，不能使用容器内部域名 `http://minio:9000`；同时确认 bucket CORS 允许站点执行 `GET` |
+| 参考文件上传时提示 `Failed to fetch` | 检查 `S3_PUBLIC_ENDPOINT`、MinIO 的 9000 端口和 bucket CORS，上传签名地址需要允许站点执行 `PUT` 与 `HEAD` |
 | 生成结果地址访问 403 | 下载地址是限时签名，过期后重新查询任务接口会拿到新地址 |
+| 修改代码后页面或接口行为没有变化 | Docker 容器仍在运行旧镜像，执行带 `--build` 的 Compose 启动命令并刷新页面 |

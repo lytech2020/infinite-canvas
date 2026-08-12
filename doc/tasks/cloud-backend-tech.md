@@ -304,15 +304,19 @@ server/
 | 变量 | 必填 | 示例 | 说明 |
 | --- | :---: | --- | --- |
 | `PORT` | 否 | `8787` | 服务监听端口 |
-| `NODE_ENV` | 否 | `production` | 影响 Cookie `Secure` 和日志级别 |
+| `NODE_ENV` | 否 | `production` | 运行环境标记；未设置独立 Cookie 开关时用于决定 `Secure` 默认值 |
 | `DATABASE_URL` | 是 | `postgresql://ic:ic@db:5432/infinite_canvas` | PostgreSQL 连接串 |
 | `SESSION_COOKIE_NAME` | 否 | `ic_session` | 会话 Cookie 名 |
 | `SESSION_TTL_DAYS` | 否 | `30` | 会话有效期 |
+| `SESSION_COOKIE_SECURE` | 否 | `true` | 是否只通过 HTTPS 下发会话 Cookie；本机纯 HTTP 开发可设为 `false` |
 | `SECRET_ENCRYPTION_KEY` | 是 | 32 字节 base64 | 渠道密钥 AES-256-GCM 主密钥 |
 | `ADMIN_EMAIL` | 是 | `admin@example.com` | 初始管理员邮箱，seed 使用 |
-| `ADMIN_PASSWORD` | 是 | - | 初始管理员密码，seed 后应立即修改 |
-| `REGISTRATION_OPEN` | 否 | `true` | 自助注册初始值，之后以数据库设置为准 |
-| `S3_ENDPOINT` | 是 | `http://minio:9000` | 对象存储地址 |
+| `ADMIN_PASSWORD` | 是 | - | 8–16 位初始管理员密码，seed 后应立即修改 |
+| `REGISTRATION_OPEN` | 否 | `false` | 自助注册初始值，之后以数据库设置为准 |
+| `DEFAULT_DAILY_CALL_LIMIT` | 否 | `20` | 新普通用户的默认每日调用次数 |
+| `DEFAULT_MONTHLY_BUDGET_USD` | 否 | `10` | 新普通用户的默认每月美元额度 |
+| `S3_ENDPOINT` | 是 | `http://minio:9000` | 后台访问对象存储的内部地址 |
+| `S3_PUBLIC_ENDPOINT` | 否 | `http://localhost:9000` | 签发给浏览器的对象存储地址；未设置时沿用 `S3_ENDPOINT` |
 | `S3_REGION` | 是 | `us-east-1` | 区域 |
 | `S3_BUCKET` | 是 | `infinite-canvas` | 存储桶 |
 | `S3_ACCESS_KEY_ID` | 是 | - | 访问密钥 |
@@ -350,19 +354,18 @@ cp .env.example .env
 docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
 ```
 
-本地覆盖文件增加 MinIO、bucket 初始化和后台 `8787` 端口映射；PostgreSQL 与 MinIO 数据分别保存在 Docker volume 中。后台容器启动时自动执行 `prisma migrate deploy`。
+本地覆盖文件增加 MinIO、bucket 初始化和后台 `8787` 端口映射；PostgreSQL 与 MinIO 数据分别保存在 Docker volume 中。后台容器启动时自动执行 `prisma migrate deploy`，随后执行不会覆盖既有管理配置的幂等 seed；seed 失败只记录警告，不阻断后台服务。
 
-3. 首次启动创建管理员和可选初始渠道：
+当前任务执行与取消句柄保存在单个后台进程中，部署时只能运行一个 `server` 副本；多副本需要先引入独立任务队列、Worker 租约与心跳，避免某个实例启动时把其他实例的运行任务判为中断。
 
-```bash
-docker compose -f docker-compose.yml -f docker-compose.local.yml exec server node dist/prisma/seed.js
-```
+3. 首次启动由后台容器自动创建管理员和可选初始渠道。已有渠道只补充缺失模型，不覆盖管理后台修改过的密钥、地址和启用状态。
 
 4. 打开前端与对象存储控制台：
 
 - 前端：`http://localhost:3000`
 - 后端健康接口：`http://localhost:8787/api/v1/health`
-- MinIO 控制台：`http://localhost:9001`
+- MinIO API：`http://localhost:9000`
+- MinIO 控制台：`http://localhost:9001`，本地默认账号和密码均为 `infinite_canvas`
 
 只有开发 Prisma schema 时才在宿主机使用 `npm run migrate:dev -- --name <name>` 生成新迁移；日常启动不再分别运行前端和后台开发服务器。
 

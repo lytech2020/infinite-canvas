@@ -103,6 +103,7 @@ export default {
         FILE_TYPE_NOT_ALLOWED: "当前文件类型不支持",
         FILE_COUNT_EXCEEDED: "参考文件数量超过限制",
         MODEL_UNAVAILABLE: "模型已停用或当前不可用",
+        MODEL_PRICE_MISSING: "模型价格尚未配置完整，请联系管理员",
         SERVICE_BUSY: "服务当前繁忙，请稍后重试",
         PROVIDER_TIMEOUT: "生成超时，请稍后重试",
         PROVIDER_ERROR: "生成服务调用失败，请稍后重试",

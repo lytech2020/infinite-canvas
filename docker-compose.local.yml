@@ -5,7 +5,9 @@ services:
       minio-init:
         condition: service_completed_successfully
     environment:
+      SESSION_COOKIE_SECURE: "false"
       S3_ENDPOINT: http://minio:9000
+      S3_PUBLIC_ENDPOINT: http://localhost:9000
       S3_REGION: us-east-1
       S3_BUCKET: infinite-canvas
       S3_ACCESS_KEY_ID: infinite_canvas
@@ -21,6 +23,7 @@ services:
     environment:
       MINIO_ROOT_USER: infinite_canvas
       MINIO_ROOT_PASSWORD: infinite_canvas
+      MINIO_API_CORS_ALLOW_ORIGIN: "*"
     ports:
       - "9000:9000"
       - "9001:9001"

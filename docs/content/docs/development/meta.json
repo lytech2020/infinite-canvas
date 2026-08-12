@@ -4,6 +4,7 @@
   "defaultOpen": true,
   "pages": [
     "local-development",
+    "backend-integration-tests",
     "canvas-data-structure",
     "local-codex-canvas"
   ]

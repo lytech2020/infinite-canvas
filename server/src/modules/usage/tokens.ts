@@ -72,7 +72,7 @@ export function estimateTokens(remoteName: string, prompt: string, output: strin
         };
     } catch (error) {
         // 估算失败不能影响任务本身，退回按字符数粗算并如实记录方法。
-        logger.warn("Token 估算失败，退回字符数粗算", { message: error instanceof Error ? error.message : String(error) });
+        logger.warn("Token 估算失败，退回字符数粗算", { error: error instanceof Error ? error.message : String(error) });
         const inputTokens = Math.ceil(prompt.length / 4);
         const outputTokens = Math.ceil(output.length / 4);
         return {

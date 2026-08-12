@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { rateLimit } from "express-rate-limit";
 import { z } from "zod";
 
 import { completeUpload, createUpload, FILE_LIMITS } from "../../modules/storage/uploads.js";
@@ -7,6 +8,14 @@ import { ok, param, route } from "../response.js";
 const presignBody = z.object({ mimeType: z.string().trim().min(1).max(120), size: z.number().int().positive() });
 
 export const uploadsRouter = Router();
+const uploadLimit = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 120,
+    keyGenerator: (req) => req.user!.id,
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: (_req, res) => res.status(429).json({ error: { code: "RATE_LIMITED", message: "上传请求过于频繁，请稍后再试" } }),
+});
 
 /** 前端上传前展示类型、大小和数量限制。 */
 uploadsRouter.get(
@@ -16,6 +25,7 @@ uploadsRouter.get(
 
 uploadsRouter.post(
     "/presign",
+    uploadLimit,
     route(async (req, res) => {
         const { mimeType, size } = presignBody.parse(req.body);
         const { upload, url, expiresInSeconds } = await createUpload(req.user!.id, mimeType, size);

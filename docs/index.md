@@ -16,6 +16,7 @@
 ## 开发与数据
 
 - [本地开发](/docs/development/local-development)
+- [后台集成测试](/docs/development/backend-integration-tests)
 - [画布数据结构](/docs/development/canvas-data-structure)
 
 ## 商务合作
