@@ -2,14 +2,20 @@ import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import test from "node:test";
-import { PrismaClient } from "@prisma/client";
+import { HeadObjectCommand, ListObjectsV2Command, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { Prisma, PrismaClient, type AiUsageRecord } from "@prisma/client";
 
 const execFileAsync = promisify(execFile);
+for (const name of ["TEST_DATABASE_URL", "TEST_COMPOSE_FILE", "TEST_MOCK_URL", "TEST_MINIO_URL"] as const) {
+    if (!process.env[name]) throw new Error(`缺少 ${name}，请通过 npm run test:integration 运行此测试`);
+}
 const API = process.env.TEST_API_URL || "http://127.0.0.1:58787";
 const APP = process.env.TEST_APP_URL || "http://127.0.0.1:53000";
 const DATABASE_URL = process.env.TEST_DATABASE_URL!;
 const COMPOSE_FILE = process.env.TEST_COMPOSE_FILE!;
 const COMPOSE_PROJECT = process.env.TEST_COMPOSE_PROJECT || "infinite-canvas-test";
+const MOCK = process.env.TEST_MOCK_URL!;
+const MINIO = process.env.TEST_MINIO_URL!;
 const DOCKER = process.env.TEST_DOCKER_BIN || "docker";
 const MUTATING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 const prisma = new PrismaClient({ datasources: { db: { url: DATABASE_URL } } });
@@ -18,30 +24,39 @@ let serial = 0;
 process.env.DATABASE_URL = DATABASE_URL;
 process.env.NODE_ENV = "test";
 process.env.SECRET_ENCRYPTION_KEY = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
-process.env.S3_ENDPOINT = "http://127.0.0.1:59000";
-process.env.S3_PUBLIC_ENDPOINT = "http://127.0.0.1:59000";
+process.env.S3_ENDPOINT = MINIO;
+process.env.S3_PUBLIC_ENDPOINT = MINIO;
 process.env.S3_BUCKET = "infinite-canvas";
 process.env.S3_ACCESS_KEY_ID = "infinite_canvas";
 process.env.S3_SECRET_ACCESS_KEY = "integration_test";
 process.env.S3_FORCE_PATH_STYLE = "true";
 process.env.SESSION_COOKIE_SECURE = "false";
+const s3 = new S3Client({
+    region: "us-east-1",
+    endpoint: MINIO,
+    forcePathStyle: true,
+    credentials: { accessKeyId: "infinite_canvas", secretAccessKey: "integration_test" },
+});
 
 type ApiResult<T = any> = { status: number; body: T; headers: Headers };
 
 class Session {
     cookie = "";
-    readonly forwardedFor = (() => {
-        const id = serial++;
-        return `198.18.${Math.floor(id / 250) % 250}.${(id % 250) + 1}`;
-    })();
+    readonly forwardedFor: string;
 
-    async request<T = any>(path: string, init: { method?: string; body?: unknown; csrf?: boolean } = {}): Promise<ApiResult<T>> {
+    constructor(forwardedFor?: string) {
+        const id = serial++;
+        this.forwardedFor = forwardedFor || `198.18.${Math.floor(id / 250) % 250}.${(id % 250) + 1}`;
+    }
+
+    async request<T = any>(path: string, init: { method?: string; body?: unknown; csrf?: boolean; headers?: Record<string, string> } = {}): Promise<ApiResult<T>> {
         const method = (init.method || "GET").toUpperCase();
         const headers: Record<string, string> = { "X-Forwarded-For": this.forwardedFor };
         if (this.cookie) headers.Cookie = this.cookie;
         if (init.body !== undefined) headers["Content-Type"] = "application/json";
         if (MUTATING.has(method) && init.csrf !== false) headers["X-Requested-With"] = "infinite-canvas";
-        const response = await fetch(`${API}${path}`, { method, headers, body: init.body === undefined ? undefined : JSON.stringify(init.body) });
+        Object.assign(headers, init.headers);
+        const response = await fetch(`${API}${path}`, { method, headers, body: init.body === undefined ? undefined : JSON.stringify(init.body), signal: AbortSignal.timeout(30_000) });
         const setCookie = response.headers.get("set-cookie");
         if (setCookie) this.cookie = setCookie.split(";", 1)[0];
         return { status: response.status, body: await response.json().catch(() => ({})), headers: response.headers };
@@ -74,7 +89,7 @@ async function setLimits(admin: Session, userId: string, limits: { dailyCallLimi
     assert.equal(result.status, 200, JSON.stringify(result.body));
 }
 
-async function submit(session: Session, modelId: string, requestId: string, options: { capability?: "text" | "image" | "video"; prompt?: string; params?: Record<string, unknown>; fileIds?: string[] } = {}) {
+async function submit(session: Session, modelId: string, requestId: string, options: { capability?: "text" | "image" | "video" | "audio"; prompt?: string; params?: Record<string, unknown>; fileIds?: string[] } = {}) {
     const capability = options.capability || "text";
     return session.request("/api/v1/generations", {
         method: "POST",
@@ -115,8 +130,60 @@ async function cancel(session: Session, jobId: string) {
     return session.request(`/api/v1/generations/${jobId}/cancel`, { method: "POST" });
 }
 
+async function mockReset() {
+    const response = await fetch(`${MOCK}/control/reset`, { method: "POST", signal: AbortSignal.timeout(5_000) });
+    assert.equal(response.status, 200);
+}
+
+async function mockStats() {
+    const response = await fetch(`${MOCK}/control/stats`, { signal: AbortSignal.timeout(5_000) });
+    assert.equal(response.status, 200);
+    return response.json() as Promise<{ requestCount: number; paths: Record<string, number> }>;
+}
+
+async function waitForMockHold(token: string, entered: number, timeoutMs = 5_000) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        const response = await fetch(`${MOCK}/control/hold/${token}`, { signal: AbortSignal.timeout(5_000) });
+        const state = (await response.json()) as { entered: number };
+        if (state.entered >= entered) return;
+        await new Promise((resolve) => setTimeout(resolve, 40));
+    }
+    throw new Error(`供应商请求未进入 hold=${token}（期望 ${entered} 条）`);
+}
+
+async function waitForUsage(jobId: string, predicate: (usage: AiUsageRecord) => boolean, timeoutMs = 5_000) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        const usage = await prisma.aiUsageRecord.findUnique({ where: { jobId } });
+        if (usage && predicate(usage)) return usage;
+        await new Promise((resolve) => setTimeout(resolve, 40));
+    }
+    throw new Error(`任务 ${jobId} 的计费记录未达到预期状态`);
+}
+
+async function waitForNoObjects(prefix: string, timeoutMs = 5_000) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        const objects = await s3.send(new ListObjectsV2Command({ Bucket: "infinite-canvas", Prefix: prefix }));
+        if (!(objects.KeyCount || 0)) return;
+        await new Promise((resolve) => setTimeout(resolve, 40));
+    }
+    throw new Error(`对象前缀 ${prefix} 未被清理`);
+}
+
+async function releaseMock(token: string) {
+    const response = await fetch(`${MOCK}/control/release/${token}`, { method: "POST", signal: AbortSignal.timeout(5_000) });
+    assert.equal(response.status, 200);
+}
+
 async function compose(...args: string[]) {
-    await execFileAsync(DOCKER, ["compose", "-f", COMPOSE_FILE, "-p", COMPOSE_PROJECT, ...args], { timeout: 120_000 });
+    try {
+        await execFileAsync(DOCKER, ["compose", "-f", COMPOSE_FILE, "-p", COMPOSE_PROJECT, ...args], { timeout: 300_000 });
+    } catch (error) {
+        const detail = error && typeof error === "object" && "stderr" in error ? String(error.stderr) : "";
+        throw new Error(`Docker Compose ${args.join(" ")} 失败${detail ? `：${detail.trim()}` : ""}`, { cause: error });
+    }
 }
 
 async function waitHealth(timeoutMs = 60_000) {
@@ -138,7 +205,10 @@ async function waitUrl(url: string, timeoutMs = 30_000) {
     throw new Error(`等待 ${url} 超时`);
 }
 
-test("云端后台安全与并发集成测试", async (t) => {
+test("云端后台安全与并发集成测试", { timeout: 600_000 }, async (t) => {
+    t.afterEach(async () => {
+        await mockReset();
+    });
     const admin = await login("integration-admin@example.com", "AdminTest123!");
     const modelsResult = await admin.request("/api/v1/admin/models");
     assert.equal(modelsResult.status, 200);
@@ -166,53 +236,94 @@ test("云端后台安全与并发集成测试", async (t) => {
         const registration = await new Session().request("/api/v1/auth/register", { method: "POST", body: { email: `${unique("closed-registration")}@example.com`, password: "UserTest123!" } });
         assert.equal(registration.status, 403);
         assert.equal(registration.body.error?.code, "REGISTRATION_CLOSED");
+        const cookieSession = new Session();
+        const cookieLogin = await cookieSession.request("/api/v1/auth/login", { method: "POST", body: { email: "integration-admin@example.com", password: "AdminTest123!" } });
+        const setCookie = cookieLogin.headers.get("set-cookie") || "";
+        assert.match(setCookie, /HttpOnly/i);
+        assert.match(setCookie, /SameSite=Lax/i);
         await compose("exec", "-T", "-e", "ADMIN_PASSWORD=x", "server", "node", "dist/prisma/seed.js");
     });
 
+    await t.test("登录限流按固定客户端 IP 拦截暴力尝试", async () => {
+        const attacker = new Session("198.19.255.254");
+        for (let index = 0; index < 20; index += 1) {
+            const result = await attacker.request("/api/v1/auth/login", { method: "POST", body: { email: "integration-admin@example.com", password: "WrongPass123!" } });
+            assert.equal(result.status, 401, `第 ${index + 1} 次错误登录应进入凭据校验`);
+        }
+        const limited = await attacker.request("/api/v1/auth/login", { method: "POST", body: { email: "integration-admin@example.com", password: "WrongPass123!" } });
+        assert.equal(limited.status, 429);
+        assert.equal(limited.body.error?.code, "RATE_LIMITED");
+        assert.ok(limited.headers.get("retry-after"));
+    });
+
     await t.test("同一 requestId 并发 20 次只创建一条任务和计费记录", async () => {
+        await mockReset();
         const account = await createUser(admin, "idempotent");
         const requestId = unique("same-request");
-        const results = await Promise.all(Array.from({ length: 20 }, () => submit(account.session, textModel.id, requestId, { prompt: "[delay=250] 幂等" })));
-        assert.ok(results.every((result) => result.status === 200), results.map((result) => [result.status, result.body.error?.code]));
+        const token = unique("idempotent-hold");
+        const results = await Promise.all(Array.from({ length: 20 }, () => submit(account.session, textModel.id, requestId, { prompt: `[hold=${token}] 幂等` })));
+        assert.ok(results.every((result) => result.status === 200), JSON.stringify(results.map((result) => [result.status, result.body.error?.code])));
         const ids = new Set(results.map((result) => result.body.data.job.id));
         assert.equal(ids.size, 1);
         const jobId = [...ids][0] as string;
+        await waitForMockHold(token, 1);
+        assert.equal((await mockStats()).requestCount, 1, "幂等请求只能真实调用一次供应商");
+        await releaseMock(token);
         assert.equal((await waitJob(account.session, jobId)).status, "succeeded");
+        assert.equal((await mockStats()).requestCount, 1, "任务结束后仍只能有一次供应商调用");
         assert.equal(await prisma.generationJob.count({ where: { userId: account.user.id, requestId } }), 1);
         assert.equal(await prisma.aiUsageRecord.count({ where: { jobId } }), 1);
     });
 
     await t.test("用户并发与视频并发严格执行账户限额", async () => {
+        await mockReset();
         const account = await createUser(admin, "concurrency");
         await setLimits(admin, account.user.id, { dailyCallLimit: 100, monthlyBudgetUsd: "100", concurrencyLimit: 2, videoConcurrencyLimit: 1 });
-        const results = await Promise.all(Array.from({ length: 5 }, (_, index) => submit(account.session, textModel.id, unique(`parallel-${index}`), { prompt: "[delay=3000] 并发" })));
+        const textHold = unique("user-concurrency");
+        const results = await Promise.all(Array.from({ length: 5 }, (_, index) => submit(account.session, textModel.id, unique(`parallel-${index}`), { prompt: `[hold=${textHold}] 并发` })));
         const accepted = results.filter((result) => result.status === 200);
         const rejected = results.filter((result) => result.body.error?.code === "CONCURRENCY_LIMIT");
         assert.equal(accepted.length, 2);
         assert.equal(rejected.length, 3);
+        await waitForMockHold(textHold, 2);
+        assert.equal((await mockStats()).requestCount, 2);
         await Promise.all(accepted.map((result) => cancel(account.session, result.body.data.job.id)));
+        await releaseMock(textHold);
 
-        const videoResults = await Promise.all(Array.from({ length: 3 }, (_, index) => submit(account.session, videoModel.id, unique(`video-${index}`), { capability: "video", prompt: "视频并发", params: { seconds: 4 } })));
+        await mockReset();
+        const videoHold = unique("video-concurrency");
+        const videoResults = await Promise.all(Array.from({ length: 3 }, (_, index) => submit(account.session, videoModel.id, unique(`video-${index}`), { capability: "video", prompt: `[hold=${videoHold}] 视频并发`, params: { seconds: 4 } })));
         assert.equal(videoResults.filter((result) => result.status === 200).length, 1);
         assert.equal(videoResults.filter((result) => result.body.error?.code === "CONCURRENCY_LIMIT").length, 2);
         const videoJob = videoResults.find((result) => result.status === 200)!;
+        await waitForMockHold(videoHold, 1);
+        assert.equal((await mockStats()).requestCount, 1);
         await cancel(account.session, videoJob.body.data.job.id);
+        await releaseMock(videoHold);
     });
 
     await t.test("模型 maxConcurrency=1 时多用户只放行一条", async () => {
         const patch = await admin.request(`/api/v1/admin/models/${textModel.id}`, { method: "PATCH", body: { maxConcurrency: 1 } });
         assert.equal(patch.status, 200);
-        const first = await createUser(admin, "model-limit-a");
-        const second = await createUser(admin, "model-limit-b");
-        const results = await Promise.all([
-            submit(first.session, textModel.id, unique("model-a"), { prompt: "[delay=2500] 模型并发" }),
-            submit(second.session, textModel.id, unique("model-b"), { prompt: "[delay=2500] 模型并发" }),
-        ]);
-        assert.equal(results.filter((result) => result.status === 200).length, 1);
-        assert.equal(results.filter((result) => result.body.error?.code === "SERVICE_BUSY").length, 1);
-        const accepted = results.find((result) => result.status === 200)!;
-        await cancel(accepted === results[0] ? first.session : second.session, accepted.body.data.job.id);
-        await admin.request(`/api/v1/admin/models/${textModel.id}`, { method: "PATCH", body: { maxConcurrency: null } });
+        try {
+            await mockReset();
+            const first = await createUser(admin, "model-limit-a");
+            const second = await createUser(admin, "model-limit-b");
+            const token = unique("model-concurrency");
+            const results = await Promise.all([
+                submit(first.session, textModel.id, unique("model-a"), { prompt: `[hold=${token}] 模型并发` }),
+                submit(second.session, textModel.id, unique("model-b"), { prompt: `[hold=${token}] 模型并发` }),
+            ]);
+            assert.equal(results.filter((result) => result.status === 200).length, 1);
+            assert.equal(results.filter((result) => result.body.error?.code === "SERVICE_BUSY").length, 1);
+            const accepted = results.find((result) => result.status === 200)!;
+            await waitForMockHold(token, 1);
+            assert.equal((await mockStats()).requestCount, 1);
+            await cancel(accepted === results[0] ? first.session : second.session, accepted.body.data.job.id);
+            await releaseMock(token);
+        } finally {
+            await admin.request(`/api/v1/admin/models/${textModel.id}`, { method: "PATCH", body: { maxConcurrency: null } });
+        }
     });
 
     await t.test("取消 queued、running 和供应商已返回竞态均保持正确计费", async () => {
@@ -224,10 +335,15 @@ test("云端后台安全与并发集成测试", async (t) => {
         assert.equal(queuedCancel.body.data.job.status, "cancelled");
         assert.equal((await prisma.aiUsageRecord.findUniqueOrThrow({ where: { jobId: queued.id } })).amountUsd.toString(), "0");
 
-        const runningResult = await submit(account.session, textModel.id, unique("running"), { prompt: "[delay=3000] 运行中取消" });
+        await mockReset();
+        const runningHold = unique("running-cancel");
+        const runningResult = await submit(account.session, textModel.id, unique("running"), { prompt: `[hold=${runningHold}] 运行中取消` });
         await waitForStatus(account.session, runningResult.body.data.job.id, "running");
+        await waitForMockHold(runningHold, 1);
         await cancel(account.session, runningResult.body.data.job.id);
         assert.equal((await waitJob(account.session, runningResult.body.data.job.id)).status, "cancelled");
+        assert.equal((await prisma.aiUsageRecord.findUniqueOrThrow({ where: { jobId: runningResult.body.data.job.id } })).amountUsd.toString(), "0");
+        await releaseMock(runningHold);
 
         const lateJob = await prisma.generationJob.create({
             data: { requestId: unique("late"), userId: account.user.id, source: "other", modelId: textModel.id, capability: "text", promptText: "late", status: "cancelled", finishedAt: new Date() },
@@ -239,15 +355,35 @@ test("云端后台安全与并发集成测试", async (t) => {
         const lateUsage = await prisma.aiUsageRecord.findUniqueOrThrow({ where: { jobId: lateJob.id } });
         assert.equal(lateUsage.status, "cancelled");
         assert.equal(lateUsage.amountUsd.toFixed(8), "0.00014000");
+
+        await mockReset();
+        const lateImageHold = unique("late-image-cancel");
+        const lateImage = await submit(account.session, imageModel.id, unique("late-image"), { capability: "image", prompt: `[hold=${lateImageHold}] 供应商返回后取消` });
+        const lateImageId = lateImage.body.data.job.id;
+        await waitForMockHold(lateImageHold, 1);
+        await prisma.$transaction([
+            prisma.generationJob.update({ where: { id: lateImageId }, data: { status: "cancelled", finishedAt: new Date() } }),
+            prisma.aiUsageRecord.create({ data: { jobId: lateImageId, userId: account.user.id, modelId: imageModel.id, capability: "image", status: "cancelled", usageSource: "none", amountUsd: 0 } }),
+        ]);
+        await releaseMock(lateImageHold);
+        const settledLateImage = await waitForUsage(lateImageId, (usage) => usage.status === "cancelled" && usage.amountUsd.gt(0));
+        assert.equal(settledLateImage.amountUsd.toFixed(8), "0.04000000");
+        const lateImageStats = await mockStats();
+        assert.equal(Object.entries(lateImageStats.paths).filter(([path]) => path.endsWith("/images/generations")).reduce((sum, [, count]) => sum + count, 0), 1);
+        await waitForNoObjects(`outputs/${account.user.id}/${lateImageId}/`);
     });
 
     await t.test("每日和月度额度在并发与时区边界下生效", async () => {
+        await mockReset();
         const daily = await createUser(admin, "daily-limit");
         await setLimits(admin, daily.user.id, { dailyCallLimit: 1, monthlyBudgetUsd: "100", concurrencyLimit: 5, videoConcurrencyLimit: 1 });
-        const dailyResults = await Promise.all(Array.from({ length: 5 }, (_, index) => submit(daily.session, textModel.id, unique(`daily-${index}`), { prompt: "[delay=1000] 日限额" })));
+        const dailyHold = unique("daily-limit");
+        const dailyResults = await Promise.all(Array.from({ length: 5 }, (_, index) => submit(daily.session, textModel.id, unique(`daily-${index}`), { prompt: `[hold=${dailyHold}] 日限额` })));
         assert.equal(dailyResults.filter((result) => result.status === 200).length, 1);
         assert.equal(dailyResults.filter((result) => result.body.error?.code === "DAILY_CALL_LIMIT").length, 4);
+        await waitForMockHold(dailyHold, 1);
         await cancel(daily.session, dailyResults.find((result) => result.status === 200)!.body.data.job.id);
+        await releaseMock(dailyHold);
 
         const monthly = await createUser(admin, "monthly-limit");
         await setLimits(admin, monthly.user.id, { dailyCallLimit: 20, monthlyBudgetUsd: "0.0001", concurrencyLimit: 2, videoConcurrencyLimit: 1 });
@@ -263,13 +399,20 @@ test("云端后台安全与并发集成测试", async (t) => {
 
     await t.test("管理员跳过次数和金额限制但仍受并发限制", async () => {
         await prisma.user.update({ where: { email: "integration-admin@example.com" }, data: { dailyCallLimit: 1, monthlyBudgetUsd: "0.00000001", concurrencyLimit: 2 } });
-        const completed = await submit(admin, textModel.id, unique("admin-complete"));
-        await waitJob(admin, completed.body.data.job.id);
-        const results = await Promise.all(Array.from({ length: 3 }, (_, index) => submit(admin, textModel.id, unique(`admin-${index}`), { prompt: "[delay=2500] 管理员并发" })));
-        assert.equal(results.filter((result) => result.status === 200).length, 2);
-        assert.equal(results.filter((result) => result.body.error?.code === "CONCURRENCY_LIMIT").length, 1);
-        await Promise.all(results.filter((result) => result.status === 200).map((result) => cancel(admin, result.body.data.job.id)));
-        await prisma.user.update({ where: { email: "integration-admin@example.com" }, data: { dailyCallLimit: null, monthlyBudgetUsd: null, concurrencyLimit: null } });
+        try {
+            const completed = await submit(admin, textModel.id, unique("admin-complete"));
+            await waitJob(admin, completed.body.data.job.id);
+            await mockReset();
+            const token = unique("admin-concurrency");
+            const results = await Promise.all(Array.from({ length: 3 }, (_, index) => submit(admin, textModel.id, unique(`admin-${index}`), { prompt: `[hold=${token}] 管理员并发` })));
+            assert.equal(results.filter((result) => result.status === 200).length, 2);
+            assert.equal(results.filter((result) => result.body.error?.code === "CONCURRENCY_LIMIT").length, 1);
+            await waitForMockHold(token, 2);
+            await Promise.all(results.filter((result) => result.status === 200).map((result) => cancel(admin, result.body.data.job.id)));
+            await releaseMock(token);
+        } finally {
+            await prisma.user.update({ where: { email: "integration-admin@example.com" }, data: { dailyCallLimit: null, monthlyBudgetUsd: null, concurrencyLimit: null } });
+        }
     });
 
     await t.test("缺价格、规格未命中及计价类型不匹配均在供应商调用前拒绝", async () => {
@@ -301,15 +444,73 @@ test("云端后台安全与并发集成测试", async (t) => {
         assert.equal(minuteOnly.body.error?.code, "VALIDATION_FAILED");
     });
 
+    await t.test("图片规格、视频与音频成功路径按实际媒体单位结算", async () => {
+        const account = await createUser(admin, "media-settlement");
+        const createModel = async (capability: "image" | "video" | "audio", remoteName: string) => {
+            const result = await admin.request("/api/v1/admin/models", {
+                method: "POST",
+                body: { providerId: seededProvider.id, displayName: unique(`${capability}-settlement`), remoteName, capability },
+            });
+            assert.equal(result.status, 200, JSON.stringify(result.body));
+            return result.body.data.model;
+        };
+
+        const image = await createModel("image", "mock-image");
+        const imagePrice = await admin.request(`/api/v1/admin/models/${image.id}/prices`, {
+            method: "POST",
+            body: { pricingType: "image", unitPrices: { perImageByVariant: { "1024x1024:high": "0.1" } }, effectiveFrom: "2020-01-01T00:00:00.000Z" },
+        });
+        assert.equal(imagePrice.status, 200, JSON.stringify(imagePrice.body));
+        const imageCreated = await submit(account.session, image.id, unique("variant-image"), { capability: "image", params: { size: "1024x1024", quality: "high", count: 1 } });
+        await waitJob(account.session, imageCreated.body.data.job.id);
+        const imageUsage = await prisma.aiUsageRecord.findUniqueOrThrow({ where: { jobId: imageCreated.body.data.job.id } });
+        assert.equal(imageUsage.amountUsd.toFixed(8), "0.10000000");
+
+        const video = await createModel("video", "mock-video");
+        const videoPrice = await admin.request(`/api/v1/admin/models/${video.id}/prices`, {
+            method: "POST",
+            body: { pricingType: "video", unitPrices: { perVideo: "0.25", perVideoSecondByResolution: { "1080p": "0.5" } }, effectiveFrom: "2020-01-01T00:00:00.000Z" },
+        });
+        assert.equal(videoPrice.status, 200, JSON.stringify(videoPrice.body));
+        const videoCreated = await submit(account.session, video.id, unique("priced-video"), { capability: "video", prompt: "[delay=1] 视频结算", params: { seconds: 4, resolution: "1080p" } });
+        await waitJob(account.session, videoCreated.body.data.job.id, ["succeeded", "failed"], 15_000);
+        const videoUsage = await prisma.aiUsageRecord.findUniqueOrThrow({ where: { jobId: videoCreated.body.data.job.id } });
+        assert.equal(videoUsage.amountUsd.toFixed(8), "2.25000000");
+        assert.equal((videoUsage.calculationDetail as { lines: unknown[] }).lines.length, 2);
+
+        const roundedVideo = await submit(account.session, video.id, unique("rounded-video"), { capability: "video", prompt: "[delay=1] 视频时长进位", params: { seconds: 5, resolution: "1080p" } });
+        await waitJob(account.session, roundedVideo.body.data.job.id, ["succeeded", "failed"], 15_000);
+        const roundedVideoUsage = await prisma.aiUsageRecord.findUniqueOrThrow({ where: { jobId: roundedVideo.body.data.job.id } });
+        assert.equal(roundedVideoUsage.amountUsd.toFixed(8), "4.25000000");
+        assert.equal((roundedVideoUsage.mediaUnits as { videoSeconds: number }).videoSeconds, 8);
+
+        const audio = await createModel("audio", "mock-audio");
+        const audioPrice = await admin.request(`/api/v1/admin/models/${audio.id}/prices`, {
+            method: "POST",
+            body: { pricingType: "audio", unitPrices: { perAudioMinute: "0.6", perMillionCharacters: "10" }, effectiveFrom: "2020-01-01T00:00:00.000Z" },
+        });
+        assert.equal(audioPrice.status, 200, JSON.stringify(audioPrice.body));
+        const audioCreated = await submit(account.session, audio.id, unique("priced-audio"), { capability: "audio", prompt: "测试音频", params: { format: "wav" } });
+        await waitJob(account.session, audioCreated.body.data.job.id);
+        const audioUsage = await prisma.aiUsageRecord.findUniqueOrThrow({ where: { jobId: audioCreated.body.data.job.id } });
+        assert.equal(audioUsage.amountUsd.toFixed(8), "0.01004000");
+        assert.equal((audioUsage.calculationDetail as { lines: unknown[] }).lines.length, 2);
+    });
+
     await t.test("在途任务固定使用创建时价格规则", async () => {
+        await mockReset();
         const account = await createUser(admin, "pinned-price");
         const model = (await admin.request("/api/v1/admin/models", { method: "POST", body: { providerId: seededProvider.id, displayName: unique("pinned-model"), remoteName: "mock-text", capability: "text" } })).body.data.model;
         const originalPrice = await admin.request(`/api/v1/admin/models/${model.id}/prices`, { method: "POST", body: { pricingType: "token", unitPrices: { inputPerMillionTokens: "1", outputPerMillionTokens: "2" }, effectiveFrom: "2020-01-01T00:00:00.000Z" } });
         assert.equal(originalPrice.status, 200);
-        const created = await submit(account.session, model.id, unique("pinned-job"), { prompt: "[delay=1200] 固定价格" });
+        const token = unique("pinned-price");
+        const created = await submit(account.session, model.id, unique("pinned-job"), { prompt: `[hold=${token}] 固定价格` });
         await waitForStatus(account.session, created.body.data.job.id, "running");
+        await waitForMockHold(token, 1);
         const backdated = await admin.request(`/api/v1/admin/models/${model.id}/prices`, { method: "POST", body: { pricingType: "token", unitPrices: { inputPerMillionTokens: "10", outputPerMillionTokens: "20" }, effectiveFrom: "2025-01-01T00:00:00.000Z" } });
         assert.equal(backdated.status, 200);
+        assert.equal(await prisma.modelPrice.count({ where: { modelId: model.id } }), 2);
+        await releaseMock(token);
         await waitJob(account.session, created.body.data.job.id);
         const usage = await prisma.aiUsageRecord.findUniqueOrThrow({ where: { jobId: created.body.data.job.id } });
         assert.equal(usage.amountUsd.toFixed(8), "0.00014000");
@@ -320,14 +521,23 @@ test("云端后台安全与并发集成测试", async (t) => {
         const account = await createUser(admin, "price-history");
         const provider = (await admin.request("/api/v1/admin/providers")).body.data.items[0];
         const model = (await admin.request("/api/v1/admin/models", { method: "POST", body: { providerId: provider.id, displayName: unique("price-history-model"), remoteName: "mock-text", capability: "text" } })).body.data.model;
-        await admin.request(`/api/v1/admin/models/${model.id}/prices`, { method: "POST", body: { pricingType: "token", unitPrices: { inputPerMillionTokens: "1", outputPerMillionTokens: "2" }, effectiveFrom: "2020-01-01T00:00:00.000Z" } });
-        const first = await submit(account.session, model.id, unique("old-price"));
+        await admin.request(`/api/v1/admin/models/${model.id}/prices`, {
+            method: "POST",
+            body: {
+                pricingType: "token",
+                unitPrices: { inputPerMillionTokens: "1", cachedPerMillionTokens: "0.5", outputPerMillionTokens: "2", reasoningPerMillionTokens: "3", perCall: "0.01" },
+                effectiveFrom: "2020-01-01T00:00:00.000Z",
+            },
+        });
+        const first = await submit(account.session, model.id, unique("old-price"), { prompt: "[detailed-usage] 多行计费" });
         await waitJob(account.session, first.body.data.job.id);
         const before = await prisma.aiUsageRecord.findUniqueOrThrow({ where: { jobId: first.body.data.job.id } });
         const detail = before.calculationDetail as { lines: Array<{ amount: string }> };
-        const lineSum = detail.lines.reduce((sum, line) => sum + Number(line.amount), 0);
-        assert.equal(lineSum.toFixed(8), before.amountUsd.toFixed(8));
-        const newPrice = await admin.request(`/api/v1/admin/models/${model.id}/prices`, { method: "POST", body: { pricingType: "token", unitPrices: { inputPerMillionTokens: "10", outputPerMillionTokens: "20" }, effectiveFrom: new Date(Date.now() - 1000).toISOString() } });
+        const lineSum = detail.lines.reduce((sum, line) => sum.add(line.amount), new Prisma.Decimal(0));
+        assert.equal(detail.lines.length, 5);
+        assert.ok(lineSum.equals(before.amountUsd));
+        assert.equal(before.amountUsd.toFixed(8), "0.01012500");
+        const newPrice = await admin.request(`/api/v1/admin/models/${model.id}/prices`, { method: "POST", body: { pricingType: "token", unitPrices: { inputPerMillionTokens: "10", outputPerMillionTokens: "20" }, effectiveFrom: new Date(Date.now() - 60_000).toISOString() } });
         assert.equal(newPrice.status, 200, JSON.stringify(newPrice.body));
         const second = await submit(account.session, model.id, unique("new-price"));
         await waitJob(account.session, second.body.data.job.id);
@@ -384,7 +594,7 @@ test("云端后台安全与并发集成测试", async (t) => {
                 mimeType: "image/png",
                 size: 68,
                 status: "pending",
-                expiresAt: new Date(Date.now() + 60_000),
+                expiresAt: new Date(Date.now() + 10 * 60_000),
             })),
         });
         const pendingLimited = await pendingAccount.session.request("/api/v1/uploads/presign", { method: "POST", body: { mimeType: "image/png", size: 68 } });
@@ -400,6 +610,16 @@ test("云端后台安全与并发集成测试", async (t) => {
             assert.equal(result.status, 403, path);
             assert.equal(result.body.error?.code, "FORBIDDEN", path);
         }
+        const forbiddenLimits = await a.session.request(`/api/v1/admin/users/${b.user.id}/limits`, {
+            method: "PATCH",
+            body: { dailyCallLimit: 1, monthlyBudgetUsd: "1", concurrencyLimit: 1, videoConcurrencyLimit: 1 },
+        });
+        assert.equal(forbiddenLimits.status, 403);
+        const forbiddenPrice = await a.session.request(`/api/v1/admin/models/${textModel.id}/prices`, {
+            method: "POST",
+            body: { pricingType: "token", unitPrices: { inputPerMillionTokens: "1", outputPerMillionTokens: "1" }, effectiveFrom: "2020-01-01T00:00:00.000Z" },
+        });
+        assert.equal(forbiddenPrice.status, 403);
         const projectId = unique("project-b");
         await b.session.request("/api/v1/projects", { method: "POST", body: { id: projectId, name: "B 项目" } });
         assert.equal((await a.session.request(`/api/v1/projects/${projectId}`)).status, 404);
@@ -432,6 +652,9 @@ test("云端后台安全与并发集成测试", async (t) => {
         const disabledRequest = await disabled.session.request("/api/v1/models");
         assert.equal(disabledRequest.status, 401);
         assert.equal(disabledRequest.body.error?.code, "AUTH_REQUIRED");
+        const disabledLogin = await new Session().request("/api/v1/auth/login", { method: "POST", body: { email: disabled.email, password: disabled.password } });
+        assert.equal(disabledLogin.status, 403);
+        assert.equal(disabledLogin.body.error?.code, "ACCOUNT_DISABLED");
 
         const passwordAccount = await createUser(admin, "password-session");
         const otherDevice = await login(passwordAccount.email, passwordAccount.password);
@@ -441,6 +664,12 @@ test("云端后台安全与并发集成测试", async (t) => {
         assert.equal((await otherDevice.request("/api/v1/models")).status, 401);
         const noCsrf = await passwordAccount.session.request("/api/v1/projects", { method: "POST", body: { id: unique("csrf"), name: "CSRF" }, csrf: false });
         assert.equal(noCsrf.status, 403);
+        const invalidCsrf = await passwordAccount.session.request("/api/v1/projects", {
+            method: "POST",
+            body: { id: unique("invalid-csrf"), name: "非法 CSRF 头" },
+            headers: { "X-Requested-With": "XMLHttpRequest" },
+        });
+        assert.equal(invalidCsrf.status, 403);
     });
 
     await t.test("上传声明大小、实际大小、真实类型和跨用户引用均校验", async () => {
@@ -453,12 +682,18 @@ test("云端后台安全与并发集成测试", async (t) => {
         const pngHeader = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
         const actual = Buffer.concat([pngHeader, Buffer.alloc(10 * 1024 * 1024 - pngHeader.length)]);
         const put = await fetch(mismatch.body.data.url, { method: "PUT", headers: { "Content-Type": "image/png" }, body: actual });
-        if (put.ok) {
-            const complete = await account.session.request(`/api/v1/uploads/${mismatch.body.data.uploadId}/complete`, { method: "POST" });
-            assert.equal(complete.body.error?.code, "VALIDATION_FAILED");
-        } else {
-            assert.equal(put.status, 403, "支持签名长度约束的对象存储应在上传阶段直接拒绝");
-        }
+        assert.equal(put.status, 403, "签名长度约束应在上传阶段直接拒绝");
+
+        const backendMismatch = await account.session.request("/api/v1/uploads/presign", { method: "POST", body: { mimeType: "image/png", size: declared } });
+        const upload = await prisma.upload.findUniqueOrThrow({ where: { id: backendMismatch.body.data.uploadId } });
+        await s3.send(new PutObjectCommand({ Bucket: "infinite-canvas", Key: upload.storageKey, Body: actual, ContentType: "image/png" }));
+        const complete = await account.session.request(`/api/v1/uploads/${upload.id}/complete`, { method: "POST" });
+        assert.equal(complete.body.error?.code, "VALIDATION_FAILED");
+        await assert.rejects(
+            () => s3.send(new HeadObjectCommand({ Bucket: "infinite-canvas", Key: upload.storageKey })),
+            (error: any) => error?.$metadata?.httpStatusCode === 404,
+            "后端发现实际大小不一致后应删除对象",
+        );
 
         const fake = Buffer.from("not an image");
         const fakePresign = await account.session.request("/api/v1/uploads/presign", { method: "POST", body: { mimeType: "image/png", size: fake.length } });
@@ -473,11 +708,10 @@ test("云端后台安全与并发集成测试", async (t) => {
         const job = await waitJob(account.session, created.body.data.job.id);
         const firstUrl = job.result.files[0].url;
         assert.equal((await fetch(firstUrl)).status, 200);
-        await new Promise((resolve) => setTimeout(resolve, 6100));
+        await new Promise((resolve) => setTimeout(resolve, 13_000));
         assert.equal((await fetch(firstUrl)).status, 403);
         const refreshed = await account.session.request(`/api/v1/generations/${job.id}`);
         const secondUrl = refreshed.body.data.job.result.files[0].url;
-        assert.notEqual(secondUrl, firstUrl);
         assert.equal((await fetch(secondUrl)).status, 200);
     });
 
@@ -496,23 +730,33 @@ test("云端后台安全与并发集成测试", async (t) => {
     });
 
     await t.test("供应商响应期间终止后台，重启后任务失败并留下 0 元记录", async () => {
+        await mockReset();
         const account = await createUser(admin, "restart");
-        const created = await submit(account.session, textModel.id, unique("kill-server"), { prompt: "[delay=10000] 重启恢复" });
+        const token = unique("restart-hold");
+        const created = await submit(account.session, textModel.id, unique("kill-server"), { prompt: `[hold=${token}] 重启恢复` });
         const jobId = created.body.data.job.id;
         await waitForStatus(account.session, jobId, "running");
-        const changedProvider = await admin.request(`/api/v1/admin/providers/${seededProvider.id}`, { method: "PATCH", body: { baseUrl: "http://mock-provider:9999/changed", enabled: false } });
-        assert.equal(changedProvider.status, 200);
-        await compose("kill", "server");
-        await compose("up", "-d", "server");
-        await waitHealth();
-        const job = await prisma.generationJob.findUniqueOrThrow({ where: { id: jobId } });
-        assert.equal(job.status, "failed");
-        const usage = await prisma.aiUsageRecord.findUniqueOrThrow({ where: { jobId } });
-        assert.equal(usage.amountUsd.toString(), "0");
-        const providerAfterRestart = await prisma.provider.findUniqueOrThrow({ where: { id: seededProvider.id } });
-        assert.equal(providerAfterRestart.baseUrl, "http://mock-provider:9999/changed");
-        assert.equal(providerAfterRestart.enabled, false);
-        assert.equal((await login(account.email, account.password)).cookie.length > 0, true, "重启后数据和账号应保留");
+        await waitForMockHold(token, 1);
+        assert.equal((await mockStats()).requestCount, 1);
+        try {
+            const changedProvider = await admin.request(`/api/v1/admin/providers/${seededProvider.id}`, { method: "PATCH", body: { baseUrl: "http://mock-provider:9999/changed", enabled: false } });
+            assert.equal(changedProvider.status, 200);
+            await compose("kill", "server");
+            await releaseMock(token);
+            await compose("up", "-d", "server");
+            await waitHealth();
+            const job = await prisma.generationJob.findUniqueOrThrow({ where: { id: jobId } });
+            assert.equal(job.status, "failed");
+            const usage = await prisma.aiUsageRecord.findUniqueOrThrow({ where: { jobId } });
+            assert.equal(usage.amountUsd.toString(), "0");
+            assert.equal((await mockStats()).requestCount, 1, "重启不得重放遗留供应商请求");
+            const providerAfterRestart = await prisma.provider.findUniqueOrThrow({ where: { id: seededProvider.id } });
+            assert.equal(providerAfterRestart.baseUrl, "http://mock-provider:9999/changed");
+            assert.equal(providerAfterRestart.enabled, false);
+            assert.equal((await login(account.email, account.password)).cookie.length > 0, true, "重启后数据和账号应保留");
+        } finally {
+            await prisma.provider.update({ where: { id: seededProvider.id }, data: { baseUrl: seededProvider.baseUrl, enabled: seededProvider.enabled } });
+        }
     });
 });
 
