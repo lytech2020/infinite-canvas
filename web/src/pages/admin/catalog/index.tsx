@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { App, Button, Form, Input, InputNumber, Modal, Popconfirm, Select, Switch, Table, Tabs, Tag } from "antd";
+import { App, Button, Collapse, Form, Input, InputNumber, Modal, Popconfirm, Select, Switch, Table, Tabs, Tag } from "antd";
 
 import { AdminPageHeader, capabilityLabels } from "@/pages/admin/components";
 import {
@@ -36,6 +36,54 @@ const apiFormats = [
     { value: "gemini", label: "Google Gemini（后台适配中）", disabled: true },
     { value: "ark", label: "火山方舟" },
 ];
+
+const modelJsonDefaults: Record<AdminModel["capability"], { paramSchema: Record<string, unknown>; fileLimits: Record<string, unknown> }> = {
+    text: {
+        paramSchema: {
+            reasoningEffort: { type: "enum", values: ["auto", "low", "medium", "high", "xhigh"], default: "auto" },
+            maxOutputTokens: { type: "number", min: 1, max: 32768, step: 1, default: 4096 },
+        },
+        fileLimits: { image: { maxCount: 9, maxSizeMb: 20 } },
+    },
+    image: {
+        paramSchema: {
+            size: { type: "string", default: "auto" },
+            quality: { type: "enum", values: ["auto", "low", "medium", "high"], default: "auto" },
+        },
+        fileLimits: { image: { maxCount: 9, maxSizeMb: 20 } },
+    },
+    video: {
+        paramSchema: {
+            size: { type: "string", default: "1280x720" },
+            seconds: { type: "number", min: 1, max: 60, step: 1, default: 6 },
+            resolution: { type: "string", default: "720p" },
+            generateAudio: { type: "boolean", default: true },
+            watermark: { type: "boolean", default: false },
+        },
+        fileLimits: {
+            image: { maxCount: 9, maxSizeMb: 20 },
+            video: { maxCount: 3, maxSizeMb: 200 },
+            audio: { maxCount: 3, maxSizeMb: 20 },
+        },
+    },
+    audio: {
+        paramSchema: {
+            voice: { type: "string", default: "alloy" },
+            format: { type: "enum", values: ["mp3", "wav", "opus", "aac", "flac", "pcm"], default: "mp3" },
+            speed: { type: "number", min: 0.25, max: 4, step: 0.25, default: 1 },
+        },
+        fileLimits: { audio: { maxCount: 3, maxSizeMb: 20 } },
+    },
+};
+
+function jsonDefaults(capability: AdminModel["capability"]) {
+    const defaults = modelJsonDefaults[capability];
+    return { paramSchemaJson: JSON.stringify(defaults.paramSchema, null, 2), fileLimitsJson: JSON.stringify(defaults.fileLimits, null, 2) };
+}
+
+function configuredJson(value: Record<string, unknown>, fallback: string) {
+    return Object.keys(value).length ? JSON.stringify(value, null, 2) : fallback;
+}
 
 function SystemSettings() {
     const { message } = App.useApp();
@@ -150,14 +198,17 @@ export default function AdminCatalogPage() {
     }
 
     function openModel(model?: AdminModel) {
+        const capability = model?.capability || "text";
+        const defaults = jsonDefaults(capability);
         setEditingModel(model || null);
         modelForm.setFieldsValue({
             providerId: model?.providerId || providers.data?.items[0]?.id,
             displayName: model?.displayName || "",
             remoteName: model?.remoteName || "",
-            capability: model?.capability || "text",
-            paramSchemaJson: JSON.stringify(model?.paramSchema || {}, null, 2),
-            fileLimitsJson: JSON.stringify(model?.fileLimits || {}, null, 2),
+            capability,
+            ...(model
+                ? { paramSchemaJson: configuredJson(model.paramSchema || {}, defaults.paramSchemaJson), fileLimitsJson: configuredJson(model.fileLimits || {}, defaults.fileLimitsJson) }
+                : defaults),
             maxOutputCount: model?.maxOutputCount || undefined,
             maxConcurrency: model?.maxConcurrency || undefined,
             enabled: model?.enabled ?? true,
@@ -293,7 +344,12 @@ export default function AdminCatalogPage() {
                             <Select options={providers.data?.items.map((provider) => ({ value: provider.id, label: provider.name }))} />
                         </Form.Item>
                         <Form.Item name="capability" label="生成类型" rules={[{ required: true }]}>
-                            <Select options={Object.entries(capabilityLabels).map(([value, label]) => ({ value, label }))} />
+                            <Select
+                                options={Object.entries(capabilityLabels).map(([value, label]) => ({ value, label }))}
+                                onChange={(capability: AdminModel["capability"]) => {
+                                    if (editingModel === null) modelForm.setFieldsValue(jsonDefaults(capability));
+                                }}
+                            />
                         </Form.Item>
                         <Form.Item name="displayName" label="用户看到的名称" rules={[{ required: true }]}>
                             <Input />
@@ -319,12 +375,39 @@ export default function AdminCatalogPage() {
                             </Form.Item>
                         </div>
                     </div>
-                    <Form.Item name="paramSchemaJson" label="参数定义（JSON）" tooltip="定义前端允许用户调节的尺寸、质量、时长等参数">
-                        <Input.TextArea className="font-mono" autoSize={{ minRows: 4, maxRows: 10 }} />
-                    </Form.Item>
-                    <Form.Item name="fileLimitsJson" label="文件限制（JSON）">
-                        <Input.TextArea className="font-mono" autoSize={{ minRows: 3, maxRows: 8 }} />
-                    </Form.Item>
+                    <Collapse
+                        ghost
+                        items={[
+                            {
+                                key: "advanced",
+                                forceRender: true,
+                                label: (
+                                    <span className="text-sm font-medium">
+                                        高级设置 <span className="ml-2 font-normal text-stone-400">参数范围与文件限制</span>
+                                    </span>
+                                ),
+                                children: (
+                                    <div className="pt-2">
+                                        <Form.Item
+                                            name="paramSchemaJson"
+                                            label="参数定义（JSON）"
+                                            tooltip="定义前端允许用户调节的尺寸、质量、时长等参数"
+                                            extra="键名是请求参数；type 支持 enum、number、boolean、string。enum 配 values，数字可配 min、max、step，default 表示默认值。"
+                                        >
+                                            <Input.TextArea className="font-mono" autoSize={{ minRows: 4, maxRows: 10 }} />
+                                        </Form.Item>
+                                        <Form.Item
+                                            name="fileLimitsJson"
+                                            label="文件限制（JSON）"
+                                            extra="按 image、video、audio 配置；maxCount 是文件数量上限，maxSizeMb 是单个文件大小（MB）。未填写的类型使用系统默认限制。"
+                                        >
+                                            <Input.TextArea className="font-mono" autoSize={{ minRows: 3, maxRows: 8 }} />
+                                        </Form.Item>
+                                    </div>
+                                ),
+                            },
+                        ]}
+                    />
                 </Form>
             </Modal>
 
