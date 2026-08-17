@@ -10,7 +10,7 @@ export const adminOverviewRouter = Router();
 
 const rangeQuery = z.object({ from: z.coerce.date().optional(), to: z.coerce.date().optional() });
 
-/** 后台概览：用户规模、当前负载，以及今日、本月和自定义区间的调用量与金额。 */
+/** 后台概览：用户规模、当前负载，以及今日、本月和自定义区间的调用量。 */
 adminOverviewRouter.get(
     "/",
     route(async (req, res) => {
@@ -19,18 +19,10 @@ adminOverviewRouter.get(
         const customRange = from || to ? { createdAt: { gte: from, lte: to } } : {};
         const { dayStart, monthStart } = quotaPeriods();
 
-        const now = new Date();
-        const [totalUsers, activeUsers, runningJobs, modelsMissingPrice, today, month, custom, byCapability, byStatus, byModel] = await Promise.all([
+        const [totalUsers, activeUsers, runningJobs, today, month, custom, byCapability, byStatus, byModel] = await Promise.all([
             prisma.user.count(),
             prisma.user.count({ where: { lastActiveAt: { gte: activeSince } } }),
             prisma.generationJob.count({ where: { status: { in: ["queued", "running"] } } }),
-            prisma.model.count({
-                where: {
-                    enabled: true,
-                    provider: { enabled: true },
-                    prices: { none: { effectiveFrom: { lte: now }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: now } }] } },
-                },
-            }),
             summarize({ createdAt: { gte: dayStart } }),
             summarize({ createdAt: { gte: monthStart } }),
             summarize(customRange),
@@ -43,7 +35,6 @@ adminOverviewRouter.get(
         ok(res, {
             users: { total: totalUsers, activeIn30Days: activeUsers },
             runningJobs,
-            modelsMissingPrice,
             today,
             month,
             custom,

@@ -9,24 +9,19 @@ export type CloudUser = {
     createdAt: string;
     lastActiveAt: string | null;
     calls?: number;
-    amountUsd?: string;
-    amountUsdIn30Days?: string;
     dailyCallLimit?: number | null;
-    monthlyBudgetUsd?: string | null;
     concurrencyLimit?: number | null;
     videoConcurrencyLimit?: number | null;
 };
 
-export type UserLimits = Pick<CloudUser, "dailyCallLimit" | "monthlyBudgetUsd" | "concurrencyLimit" | "videoConcurrencyLimit">;
+export type UserLimits = Pick<CloudUser, "dailyCallLimit" | "concurrencyLimit" | "videoConcurrencyLimit">;
 
 export type UserQuotaUsage = {
     dailyCalls: number;
-    monthlyAmountUsd: string;
     effectiveConcurrencyLimit: number;
     effectiveVideoConcurrencyLimit: number;
     timezone: string;
     dayResetAt: string;
-    monthResetAt: string;
 };
 
 export function login(email: string, password: string) {

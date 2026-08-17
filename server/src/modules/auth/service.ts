@@ -27,7 +27,6 @@ export async function createUser(email: string, password: string) {
             email: normalized,
             passwordHash: await argon2.hash(password),
             dailyCallLimit: env.defaultDailyCallLimit,
-            monthlyBudgetUsd: env.defaultMonthlyBudgetUsd,
         },
     });
 }

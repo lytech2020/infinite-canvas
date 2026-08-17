@@ -1,8 +1,5 @@
 import { z } from "zod";
 
-/** 金额一律用字符串保存，避免 JSON 浮点数丢精度。 */
-const priceValue = z.string().regex(/^(?!0+(?:\.0+)?$)\d+(?:\.\d{1,10})?$/, "单价必须是大于 0、最多 10 位小数的数字");
-
 /** 用户可调参数定义；前端据此渲染参数控件和范围。 */
 export const paramSchema = z.record(
     z.object({
@@ -21,26 +18,6 @@ export const fileLimitsSchema = z
         image: z.object({ maxCount: z.number().int().positive(), maxSizeMb: z.number().positive() }),
         video: z.object({ maxCount: z.number().int().positive(), maxSizeMb: z.number().positive() }),
         audio: z.object({ maxCount: z.number().int().positive(), maxSizeMb: z.number().positive() }),
-    })
-    .partial();
-
-/** 各计费方式对应的单价字段，均为可选，按 pricingType 使用其中一部分。 */
-export const unitPricesSchema = z
-    .object({
-        inputPerMillionTokens: priceValue,
-        cachedPerMillionTokens: priceValue,
-        outputPerMillionTokens: priceValue,
-        reasoningPerMillionTokens: priceValue,
-        perImage: priceValue,
-        // 按尺寸或「尺寸:质量」区分的图片单价，形如 { "1024x1024": "0.04", "1024x1024:high": "0.167" }
-        perImageByVariant: z.record(priceValue),
-        perVideo: priceValue,
-        perVideoSecond: priceValue,
-        // 按分辨率区分的视频每秒单价，形如 { "1080p": "0.5" }
-        perVideoSecondByResolution: z.record(priceValue),
-        perAudioMinute: priceValue,
-        perMillionCharacters: priceValue,
-        perCall: priceValue,
     })
     .partial();
 
@@ -66,21 +43,3 @@ export const modelBody = z.object({
     isDefault: z.boolean().optional(),
     sortOrder: z.number().int().optional(),
 });
-
-export const priceBody = z
-    .object({
-        pricingType: z.enum(["token", "image", "video", "audio", "fixed"]),
-        unitPrices: unitPricesSchema,
-        effectiveFrom: z.coerce.date(),
-        effectiveTo: z.coerce.date().nullish(),
-    })
-    .superRefine(({ pricingType, unitPrices }, ctx) => {
-        const valid =
-            (pricingType === "fixed" && Boolean(unitPrices.perCall)) ||
-            (pricingType === "token" && Boolean(unitPrices.inputPerMillionTokens && unitPrices.outputPerMillionTokens)) ||
-            (pricingType === "image" && Boolean(unitPrices.perImage || Object.keys(unitPrices.perImageByVariant || {}).length)) ||
-            (pricingType === "video" && Boolean(unitPrices.perVideo || unitPrices.perVideoSecond || Object.keys(unitPrices.perVideoSecondByResolution || {}).length)) ||
-            // 字符数在调用前始终可得；分钟价可作为附加项，但不能单独承担兜底计费。
-            (pricingType === "audio" && Boolean(unitPrices.perMillionCharacters));
-        if (!valid) ctx.addIssue({ code: "custom", path: ["unitPrices"], message: "当前计价方式缺少可用单价" });
-    });

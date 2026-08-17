@@ -1,24 +1,19 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { App, Button, DatePicker, Drawer, Form, Input, InputNumber, Modal, Popconfirm, Select, Switch, Table, Tabs, Tag } from "antd";
-import dayjs, { type Dayjs } from "dayjs";
+import { App, Button, Form, Input, InputNumber, Modal, Popconfirm, Select, Switch, Table, Tabs, Tag } from "antd";
 
 import { AdminPageHeader, capabilityLabels } from "@/pages/admin/components";
 import {
-    createModelPrice,
     deleteAdminModel,
     deleteAdminProvider,
-    deleteModelPrice,
     fetchAdminModels,
     fetchAdminProviders,
     fetchAdminSettings,
-    fetchModelPrices,
     saveAdminModel,
     saveAdminProvider,
     saveAdminSettings,
     type AdminModel,
     type AdminProvider,
-    type ModelPrice,
 } from "@/services/api/admin";
 
 type ProviderForm = { name: string; apiFormat: AdminProvider["apiFormat"]; baseUrl: string; apiKey?: string; apiVersion?: string; enabled: boolean };
@@ -35,8 +30,6 @@ type ModelForm = {
     isDefault: boolean;
     sortOrder: number;
 };
-type PriceForm = { pricingType: ModelPrice["pricingType"]; unitPricesJson: string; effectiveFrom: Dayjs; effectiveTo?: Dayjs };
-
 const apiFormats = [
     { value: "openai", label: "OpenAI 兼容" },
     { value: "azure_openai", label: "Azure OpenAI" },
@@ -85,14 +78,11 @@ export default function AdminCatalogPage() {
     const queryClient = useQueryClient();
     const [providerForm] = Form.useForm<ProviderForm>();
     const [modelForm] = Form.useForm<ModelForm>();
-    const [priceForm] = Form.useForm<PriceForm>();
     const [editingProvider, setEditingProvider] = useState<AdminProvider | null>();
     const [editingModel, setEditingModel] = useState<AdminModel | null>();
-    const [priceModel, setPriceModel] = useState<AdminModel | null>(null);
 
     const providers = useQuery({ queryKey: ["admin-providers"], queryFn: fetchAdminProviders });
     const models = useQuery({ queryKey: ["admin-models"], queryFn: () => fetchAdminModels() });
-    const prices = useQuery({ queryKey: ["admin-model-prices", priceModel?.id], queryFn: () => fetchModelPrices(priceModel!.id), enabled: Boolean(priceModel) });
 
     const refreshCatalog = async () => {
         await Promise.all([queryClient.invalidateQueries({ queryKey: ["admin-providers"] }), queryClient.invalidateQueries({ queryKey: ["admin-models"] })]);
@@ -138,27 +128,11 @@ export default function AdminCatalogPage() {
         },
         onError: (error: Error) => message.error(error.message),
     });
-    const priceSave = useMutation({
-        mutationFn: async (values: PriceForm) =>
-            createModelPrice(priceModel!.id, {
-                pricingType: values.pricingType,
-                unitPrices: parseObject(values.unitPricesJson, "单价配置") as Record<string, string | Record<string, string>>,
-                effectiveFrom: values.effectiveFrom.toISOString(),
-                effectiveTo: values.effectiveTo?.toISOString() || null,
-            }),
-        onSuccess: async () => {
-            message.success("价格规则已添加");
-            priceForm.resetFields();
-            await queryClient.invalidateQueries({ queryKey: ["admin-model-prices", priceModel?.id] });
-        },
-        onError: (error: Error) => message.error(error.message),
-    });
     const remove = useMutation({
-        mutationFn: ({ kind, id, modelId }: { kind: "provider" | "model" | "price"; id: string; modelId?: string }) =>
-            kind === "provider" ? deleteAdminProvider(id) : kind === "model" ? deleteAdminModel(id) : deleteModelPrice(modelId!, id),
+        mutationFn: ({ kind, id }: { kind: "provider" | "model"; id: string }) => (kind === "provider" ? deleteAdminProvider(id) : deleteAdminModel(id)),
         onSuccess: async () => {
             message.success("已删除");
-            await Promise.all([refreshCatalog(), queryClient.invalidateQueries({ queryKey: ["admin-model-prices", priceModel?.id] })]);
+            await refreshCatalog();
         },
         onError: (error: Error) => message.error(error.message),
     });
@@ -250,14 +224,11 @@ export default function AdminCatalogPage() {
                     { title: "状态", dataIndex: "enabled", width: 80, render: (value) => <Tag color={value ? "green" : undefined}>{value ? "启用" : "停用"}</Tag> },
                     {
                         title: "操作",
-                        width: 210,
+                        width: 150,
                         render: (_, record) => (
                             <div className="flex gap-1">
                                 <Button type="text" size="small" onClick={() => openModel(record)}>
                                     编辑
-                                </Button>
-                                <Button type="text" size="small" onClick={() => setPriceModel(record)}>
-                                    价格
                                 </Button>
                                 <Popconfirm title="确认删除这个模型？" description="已有调用记录的模型只能停用。" onConfirm={() => remove.mutate({ kind: "model", id: record.id })}>
                                     <Button type="text" size="small" danger>
@@ -274,7 +245,7 @@ export default function AdminCatalogPage() {
 
     return (
         <div className="mx-auto max-w-7xl">
-            <AdminPageHeader title="模型与渠道" description="配置 AI 供应商、可用模型及美元计价规则。普通用户不会看到密钥和实际调用名称。" />
+            <AdminPageHeader title="模型与渠道" description="配置 AI 供应商和可用模型。普通用户不会看到密钥和实际调用名称。" />
             <Tabs items={[{ key: "models", label: "模型", children: modelTab }, { key: "providers", label: "渠道", children: providerTab }, { key: "settings", label: "系统设置", children: <SystemSettings /> }]} />
 
             <Modal
@@ -357,59 +328,6 @@ export default function AdminCatalogPage() {
                 </Form>
             </Modal>
 
-            <Drawer title={`${priceModel?.displayName || "模型"} · 价格规则`} width={720} open={Boolean(priceModel)} onClose={() => setPriceModel(null)}>
-                <Form
-                    form={priceForm}
-                    layout="vertical"
-                    initialValues={{ pricingType: "token", unitPricesJson: "{}", effectiveFrom: dayjs() }}
-                    onFinish={(values) => priceSave.mutate(values)}
-                >
-                    <div className="grid gap-x-4 sm:grid-cols-2">
-                        <Form.Item name="pricingType" label="计价方式" rules={[{ required: true }]}>
-                            <Select options={[{ value: "token", label: "Token" }, { value: "image", label: "按图片" }, { value: "video", label: "按视频/秒" }, { value: "audio", label: "按分钟/字符" }, { value: "fixed", label: "按次" }]} />
-                        </Form.Item>
-                        <Form.Item name="effectiveFrom" label="生效时间" rules={[{ required: true }]}>
-                            <DatePicker className="w-full" showTime />
-                        </Form.Item>
-                    </div>
-                    <Form.Item name="effectiveTo" label="结束时间（可选）">
-                        <DatePicker className="w-full" showTime />
-                    </Form.Item>
-                    <Form.Item name="unitPricesJson" label="美元单价（JSON）" rules={[{ required: true }]} tooltip={'例如 Token：{"inputPerMillionTokens":"2.5","outputPerMillionTokens":"10"}'}>
-                        <Input.TextArea className="font-mono" autoSize={{ minRows: 4, maxRows: 10 }} />
-                    </Form.Item>
-                    <Button type="primary" htmlType="submit" loading={priceSave.isPending}>
-                        添加价格规则
-                    </Button>
-                </Form>
-                <h3 className="mb-3 mt-8 text-sm font-medium">历史规则</h3>
-                <Table<ModelPrice>
-                    rowKey="id"
-                    size="small"
-                    loading={prices.isFetching}
-                    pagination={false}
-                    dataSource={prices.data?.items || []}
-                    columns={[
-                        { title: "方式", dataIndex: "pricingType", width: 90 },
-                        { title: "单价", dataIndex: "unitPrices", render: (value) => <code className="text-xs">{JSON.stringify(value)}</code> },
-                        { title: "生效时间", dataIndex: "effectiveFrom", width: 145, render: (value) => dayjs(value).format("YYYY-MM-DD HH:mm") },
-                        {
-                            title: "操作",
-                            width: 75,
-                            render: (_, record) =>
-                                dayjs(record.effectiveFrom).isAfter(dayjs()) ? (
-                                    <Popconfirm title="删除这条尚未生效的价格？" onConfirm={() => remove.mutate({ kind: "price", id: record.id, modelId: record.modelId })}>
-                                        <Button type="text" danger size="small">
-                                            删除
-                                        </Button>
-                                    </Popconfirm>
-                                ) : (
-                                    "—"
-                                ),
-                        },
-                    ]}
-                />
-            </Drawer>
         </div>
     );
 }

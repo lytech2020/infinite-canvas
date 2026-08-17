@@ -29,7 +29,7 @@ docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
 
 `docker-compose.local.yml` 会启动 MinIO、等待其健康并自动创建 `infinite-canvas` bucket；后台容器启动时自动执行 `prisma migrate deploy` 和幂等 seed，首次启动会创建管理员和可选初始 Azure OpenAI 渠道。seed 只创建不存在的渠道和模型，不会覆盖管理后台里已经修改的地址、密钥或启用状态；seed 配置错误会输出警告但不阻断后台启动。
 
-本地配置统一放在根目录 `.env`：`DATABASE_URL` 使用服务名 `db`，`S3_ENDPOINT` 使用后台可访问的容器服务名 `http://minio:9000`，`S3_PUBLIC_ENDPOINT` 使用浏览器可访问的 `http://localhost:9000`；每日与每月账户限额按 `QUOTA_TIMEZONE` 重置。自助注册默认关闭，新普通用户默认每日 20 次、每月 10 美元，可通过 `DEFAULT_DAILY_CALL_LIMIT` 和 `DEFAULT_MONTHLY_BUDGET_USD` 调整，之后也可在用户管理中单独设置或清空为不限。`.env` 不提交到 Git。
+本地配置统一放在根目录 `.env`：`DATABASE_URL` 使用服务名 `db`，`S3_ENDPOINT` 使用后台可访问的容器服务名 `http://minio:9000`，`S3_PUBLIC_ENDPOINT` 使用浏览器可访问的 `http://localhost:9000`；每日调用限额按 `QUOTA_TIMEZONE` 重置。自助注册默认关闭，新普通用户默认每日 20 次，可通过 `DEFAULT_DAILY_CALL_LIMIT` 调整，之后也可在用户管理中单独设置或清空为不限。`.env` 不提交到 Git。
 
 停止服务但保留数据库和对象存储数据：
 
@@ -70,8 +70,6 @@ docker compose up -d --build
 
 升级已有环境前，请确认登录密码符合当前 8–16 位规则；如果数据库中的 `registration_open` 曾经设为 `true`，升级不会擅自覆盖管理员选择，需在管理后台「系统设置」中手动确认是否关闭自助注册。
 
-价格配置必须使用大于 0 的单价。按秒计费的视频请求必须携带有效时长；音频可以增加分钟价，但必须同时配置字符价作为时长解析失败时的确定性计费基线。任务创建后会固定价格规则，在途改价只影响之后创建的任务。
-
 随后登录并从账号菜单修改初始密码。修改成功后，当前浏览器保持登录，其他设备上的旧会话会立即失效。
 
 ### 3.2 对象存储 CORS
@@ -104,7 +102,7 @@ docker compose up -d --build
 
 在 `server/` 目录执行 `npm run test:integration`。测试命令会构建并启动独立的 `infinite-canvas-test` Compose 项目，使用测试专用 PostgreSQL、MinIO 和模拟 AI 供应商，不会调用真实模型或读写开发环境数据；测试结束后默认删除测试容器与数据卷。需要保留现场排查时可执行 `KEEP_TEST_STACK=true npm run test:integration`，排查完成后用 `docker compose -f ../docker-compose.test.yml -p infinite-canvas-test down --volumes` 清理。
 
-完整覆盖范围和人工验收项见[后台集成测试](../docs/content/docs/development/backend-integration-tests.mdx)。当前测试结果为 19 项通过、0 项失败。
+完整覆盖范围和人工验收项见[后台集成测试](../docs/content/docs/development/backend-integration-tests.mdx)。当前用例已按最新用量结构调整，待重新运行确认。
 
 生产后台镜像启动时会依次执行数据库迁移和幂等 seed。全新环境会创建初始管理员，已有环境不会覆盖管理员密码或自助注册设置。
 
@@ -129,7 +127,7 @@ docker compose up -d --build
 
 - 所有业务数据在 PostgreSQL 中，备份 `db-data` 卷或使用 `pg_dump` 即可。
 - 渠道 API Key 以 AES-256-GCM 密文保存，`SECRET_ENCRYPTION_KEY` 丢失后无法解密，必须与数据库备份分开妥善保管。
-- 提示词和成本结算记录长期保存，不设置自动过期。
+- 提示词和用量记录长期保存，不设置自动过期。
 - 临时上传在创建 24 小时后由后台每小时清理一次，对象存储文件与数据库记录同步删除；生成结果暂不自动删除。
 
 ## 6. 常见问题

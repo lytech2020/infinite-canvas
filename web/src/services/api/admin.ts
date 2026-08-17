@@ -10,7 +10,6 @@ export type UsageSummary = {
     outputTokens: number;
     reasoningTokens: number;
     totalTokens: number;
-    amountUsd: string;
 };
 
 export type UsageGroup = UsageSummary & { key: string; modelName?: string; capability?: Capability | null };
@@ -18,7 +17,6 @@ export type UsageGroup = UsageSummary & { key: string; modelName?: string; capab
 export type AdminOverview = {
     users: { total: number; activeIn30Days: number };
     runningJobs: number;
-    modelsMissingPrice: number;
     today: UsageSummary;
     month: UsageSummary;
     custom: UsageSummary;
@@ -55,7 +53,6 @@ export type UsageDetail = {
     errorCode: string | null;
     totalTokens: number;
     usageSource: "provider" | "estimated" | "none" | null;
-    amountUsd: string | null;
 };
 
 export type PromptDetail = {
@@ -96,15 +93,6 @@ export type AdminModel = {
     enabled: boolean;
     isDefault: boolean;
     sortOrder: number;
-};
-
-export type ModelPrice = {
-    id: string;
-    modelId: string;
-    pricingType: "token" | "image" | "video" | "audio" | "fixed";
-    unitPrices: Record<string, string | Record<string, string>>;
-    effectiveFrom: string;
-    effectiveTo: string | null;
 };
 
 function queryString<T extends object>(values: T) {
@@ -153,18 +141,6 @@ export function saveAdminModel(values: Omit<AdminModel, "id"> & { id?: string })
 
 export function deleteAdminModel(id: string) {
     return backendRequest<{ ok: boolean }>(`/admin/models/${id}`, { method: "DELETE" });
-}
-
-export function fetchModelPrices(modelId: string) {
-    return backendRequest<{ items: ModelPrice[] }>(`/admin/models/${modelId}/prices`);
-}
-
-export function createModelPrice(modelId: string, values: Omit<ModelPrice, "id" | "modelId">) {
-    return backendRequest<{ price: ModelPrice }>(`/admin/models/${modelId}/prices`, { method: "POST", body: values });
-}
-
-export function deleteModelPrice(modelId: string, priceId: string) {
-    return backendRequest<{ ok: boolean }>(`/admin/models/${modelId}/prices/${priceId}`, { method: "DELETE" });
 }
 
 export function fetchAdminSettings() {

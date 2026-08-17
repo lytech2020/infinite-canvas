@@ -18,7 +18,7 @@ export const usageFilter = z.object({
 
 export type UsageFilter = z.infer<typeof usageFilter>;
 
-/** 明细以任务为准，这样正在排队和运行的调用也能看到，用量字段取其结算记录。 */
+/** 明细以任务为准，这样正在排队和运行的调用也能看到，用量字段取对应记录。 */
 export function jobWhere(filter: UsageFilter): Prisma.GenerationJobWhereInput {
     return {
         userId: filter.userId,
@@ -32,7 +32,7 @@ export function jobWhere(filter: UsageFilter): Prisma.GenerationJobWhereInput {
     };
 }
 
-/** 金额与 Token 汇总以结算记录为准，避免把未结算任务算进金额。 */
+/** Token 与媒体用量汇总以用量记录为准。 */
 export function recordWhere(filter: UsageFilter): Prisma.AiUsageRecordWhereInput {
     return {
         userId: filter.userId,
@@ -46,7 +46,7 @@ export function recordWhere(filter: UsageFilter): Prisma.AiUsageRecordWhereInput
     };
 }
 
-const sumFields = { inputTokens: true, cachedTokens: true, outputTokens: true, reasoningTokens: true, totalTokens: true, amountUsd: true } as const;
+const sumFields = { inputTokens: true, cachedTokens: true, outputTokens: true, reasoningTokens: true, totalTokens: true } as const;
 
 export type UsageSummary = {
     calls: number;
@@ -55,7 +55,6 @@ export type UsageSummary = {
     outputTokens: number;
     reasoningTokens: number;
     totalTokens: number;
-    amountUsd: string;
 };
 
 function toSummary(count: number, sum: Partial<Record<keyof typeof sumFields, unknown>>): UsageSummary {
@@ -67,12 +66,10 @@ function toSummary(count: number, sum: Partial<Record<keyof typeof sumFields, un
         outputTokens: int(sum.outputTokens),
         reasoningTokens: int(sum.reasoningTokens),
         totalTokens: int(sum.totalTokens),
-        // 金额始终以字符串下发，避免 JSON 浮点数丢精度
-        amountUsd: (sum.amountUsd instanceof Prisma.Decimal ? sum.amountUsd : new Prisma.Decimal(0)).toFixed(8),
     };
 }
 
-/** 汇总一组结算记录的调用次数、各类 Token 和金额。 */
+/** 汇总一组用量记录的调用次数和各类 Token。 */
 export async function summarize(where: Prisma.AiUsageRecordWhereInput): Promise<UsageSummary> {
     const result = await prisma.aiUsageRecord.aggregate({ where, _count: { _all: true }, _sum: sumFields });
     return toSummary(result._count._all, result._sum);

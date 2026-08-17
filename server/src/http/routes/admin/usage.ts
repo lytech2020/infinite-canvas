@@ -50,13 +50,10 @@ function detailRow(job: JobWithUsage) {
         usageEstimationMethod: usage?.usageEstimationMethod ?? null,
         tokenizerName: usage?.tokenizerName ?? null,
         tokenizerVersion: usage?.tokenizerVersion ?? null,
-        amountUsd: usage ? usage.amountUsd.toFixed(8) : null,
-        priceSnapshot: usage?.priceSnapshot ?? null,
-        calculationDetail: usage?.calculationDetail ?? null,
     };
 }
 
-/** 调用明细，附带当前筛选条件下的合计，方便管理员核对供应商账单。 */
+/** 调用明细，附带当前筛选条件下的用量合计。 */
 adminUsageRouter.get(
     "/",
     route(async (req, res) => {
@@ -88,7 +85,6 @@ const csvColumns = [
     ["reasoningTokens", "推理Token"],
     ["totalTokens", "总Token"],
     ["usageSource", "用量来源"],
-    ["amountUsd", "金额USD"],
 ] as const;
 
 /** 转义 CSV 字段，避免逗号、引号和换行破坏结构。 */
@@ -101,7 +97,7 @@ function csvCell(value: unknown) {
 }
 
 /**
- * 导出用量与金额 CSV。
+ * 导出用量 CSV。
  * 导出内容不含提示词正文：第一阶段明确禁止批量导出提示词。
  */
 adminUsageRouter.get(

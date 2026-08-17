@@ -1,4 +1,4 @@
-import { Prisma, type User } from "@prisma/client";
+import type { User } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
 
@@ -19,7 +19,6 @@ const statusBody = z.object({ status: z.enum(["active", "disabled"]) });
 const createBody = z.object({ email: z.string().email(), password: z.string().min(8).max(16) });
 const limitsBody = z.object({
     dailyCallLimit: z.number().int().min(1).max(1_000_000).nullable(),
-    monthlyBudgetUsd: z.string().regex(/^(?=.*[1-9])(?:0\.\d{1,4}|[1-9]\d{0,8}(?:\.\d{1,4})?)$/).nullable(),
     concurrencyLimit: z.number().int().min(1).max(1000).nullable(),
     videoConcurrencyLimit: z.number().int().min(1).max(1000).nullable(),
 });
@@ -28,7 +27,6 @@ function adminUser(user: User) {
     return {
         ...publicUser(user),
         dailyCallLimit: user.dailyCallLimit,
-        monthlyBudgetUsd: user.monthlyBudgetUsd?.toFixed(8) ?? null,
         concurrencyLimit: user.concurrencyLimit,
         videoConcurrencyLimit: user.videoConcurrencyLimit,
     };
@@ -55,22 +53,14 @@ adminUsersRouter.get(
             prisma.user.findMany({ where, orderBy: { createdAt: "desc" }, skip: (page - 1) * pageSize, take: pageSize }),
             prisma.user.count({ where }),
         ]);
-        // 金额只对当前页用户聚合，避免全表汇总拖慢列表
         const ids = items.map((item) => item.id);
-        const since = new Date(Date.now() - 30 * 24 * 3600 * 1000);
-        const [allTime, recent] = await Promise.all([
-            prisma.aiUsageRecord.groupBy({ by: ["userId"], where: { userId: { in: ids } }, _count: { _all: true }, _sum: { amountUsd: true } }),
-            prisma.aiUsageRecord.groupBy({ by: ["userId"], where: { userId: { in: ids }, createdAt: { gte: since } }, _sum: { amountUsd: true } }),
-        ]);
+        const allTime = await prisma.aiUsageRecord.groupBy({ by: ["userId"], where: { userId: { in: ids } }, _count: { _all: true } });
         const totals = new Map(allTime.map((row) => [row.userId, row]));
-        const recents = new Map(recent.map((row) => [row.userId, row]));
         okList(
             res,
             items.map((item) => ({
                 ...adminUser(item),
                 calls: totals.get(item.id)?._count._all ?? 0,
-                amountUsd: (totals.get(item.id)?._sum.amountUsd ?? new Prisma.Decimal(0)).toFixed(8),
-                amountUsdIn30Days: (recents.get(item.id)?._sum.amountUsd ?? new Prisma.Decimal(0)).toFixed(8),
             })),
             total,
             page,
@@ -115,10 +105,7 @@ adminUsersRouter.patch(
         const body = limitsBody.parse(req.body);
         const user = await prisma.$transaction(async (tx) => {
             if (!(await tx.user.findUnique({ where: { id: param(req, "id") } }))) throw new ApiError("NOT_FOUND", "用户不存在");
-            const updated = await tx.user.update({
-                where: { id: param(req, "id") },
-                data: { ...body, monthlyBudgetUsd: body.monthlyBudgetUsd ? new Prisma.Decimal(body.monthlyBudgetUsd) : null },
-            });
+            const updated = await tx.user.update({ where: { id: param(req, "id") }, data: body });
             await tx.adminAuditLog.create({ data: { adminId: req.user!.id, action: "user.limits.update", targetType: "user", targetId: updated.id, detail: toJson(body) } });
             return updated;
         });
