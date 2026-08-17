@@ -175,6 +175,13 @@ export default {
         thirdParty: "サードパーティ",
         title: "ノードプラグイン",
         warning: "プラグインコードはこのページで直接実行され、AI API Key を含むローカルデータへアクセスできます。信頼できる配布元のプラグインのみインストールしてください。",
+        catalog: {
+            markdown: { name: "Markdown ノード", description: "キャンバス上で Markdown を編集・表示します" },
+            svg: { name: "SVG ノード", description: "透明背景で SVG を表示し、上流のテキストノードから SVG ソースを受け取れます" },
+            html: { name: "HTML ノード", description: "サンドボックス化された iframe で HTML を表示し、上流のテキストを埋め込めます" },
+            panorama: { name: "3D パノラマノード", description: "360° パノラマ画像を表示し、上流の画像ノードから画像を取得できます" },
+            "sticky-note": { name: "付箋ノード", description: "色を選択でき、ダブルクリックで編集、ドラッグで移動できます" },
+        },
     },
     node: {
         unnamed: "名称未設定のノード",

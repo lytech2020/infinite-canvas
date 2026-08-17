@@ -36,6 +36,11 @@ export async function getObjectBuffer(key: string) {
     return Buffer.from(await object.Body!.transformToByteArray());
 }
 
+/** 流式读取对象，供带登录校验的下载代理使用。 */
+export function getObjectStream(key: string, range?: string) {
+    return client.send(new GetObjectCommand({ Bucket: env.s3Bucket, Key: key, ...(range ? { Range: range } : {}) }));
+}
+
 /** 只读取对象开头用于真实文件类型识别，避免为校验下载整个大文件。 */
 export async function getObjectPrefix(key: string, bytes = 4_100) {
     const object = await client.send(new GetObjectCommand({ Bucket: env.s3Bucket, Key: key, Range: `bytes=0-${bytes - 1}` }));

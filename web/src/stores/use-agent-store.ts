@@ -3,7 +3,7 @@ import { create } from "zustand";
 import type { CanvasAgentOp, CanvasAgentSnapshot } from "@/lib/canvas/canvas-agent-ops";
 
 export type AgentChatRole = "user" | "assistant" | "system" | "tool" | "error";
-export type AgentAttachment = { id: string; name: string; type: string; size: number; width: number; height: number; url: string; dataUrl: string };
+export type AgentAttachment = { id: string; name: string; type: string; size: number; width: number; height: number; url: string; dataUrl: string; storageKey?: string };
 export type AgentChatItem = { id: string; itemId?: string; clientMessageId?: string; threadId?: string; turnId?: string; role: AgentChatRole; title?: string; text: string; historyText?: string; meta?: string; detail?: unknown; attachments?: AgentAttachment[]; streamId?: string; activityItems?: Record<string, string> };
 export type AgentEventLog = { id: string; time: string; title: string; text: string; raw?: unknown };
 export type AgentPendingToolCall = { requestId: string; name: string; input?: { ops?: CanvasAgentOp[]; path?: string } & Record<string, unknown> };
@@ -64,16 +64,17 @@ type AgentStore = {
     connectError: string;
     pendingTool: AgentPendingToolCall | null;
     pendingApprovals: AgentPendingApproval[];
-    setAgentState: (patch: Partial<Omit<AgentStore, "setAgentState" | "connectAgent" | "disconnectAgent" | "addMessage" | "addEventLog" | "clearEventLogs" | "openPanel" | "closePanel" | "togglePanel" | "setCanvasContext">>) => void;
+    setAgentState: (patch: Partial<Omit<AgentStore, "setAgentState" | "connectAgent" | "disconnectAgent" | "addMessage" | "addEventLog" | "clearEventLogs" | "openPanel" | "closePanel" | "togglePanel" | "setCanvasContext" | "reset">>) => void;
     openPanel: () => void;
     closePanel: () => void;
     togglePanel: () => void;
     setCanvasContext: (context: AgentCanvasContext | null) => void;
     connectAgent: (options?: { silent?: boolean }) => void;
-    disconnectAgent: (patch?: Partial<Omit<AgentStore, "setAgentState" | "connectAgent" | "disconnectAgent" | "addMessage" | "addEventLog" | "clearEventLogs" | "openPanel" | "closePanel" | "togglePanel" | "setCanvasContext">>) => void;
+    disconnectAgent: (patch?: Partial<Omit<AgentStore, "setAgentState" | "connectAgent" | "disconnectAgent" | "addMessage" | "addEventLog" | "clearEventLogs" | "openPanel" | "closePanel" | "togglePanel" | "setCanvasContext" | "reset">>) => void;
     addMessage: (item: AgentChatItem) => void;
     addEventLog: (item: AgentEventLog) => void;
     clearEventLogs: () => void;
+    reset: () => void;
 };
 
 export const CANVAS_AGENT_PANEL_MOTION_MS = 500;
@@ -84,8 +85,8 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     panelMounted: true,
     panelClosing: false,
     canvasContext: null,
-    url: typeof window === "undefined" ? "http://127.0.0.1:17371" : localStorage.getItem("canvas-agent-url") || "http://127.0.0.1:17371",
-    token: typeof window === "undefined" ? "" : localStorage.getItem("canvas-agent-token") || "",
+    url: "http://127.0.0.1:17371",
+    token: "",
     connected: false,
     enabled: false,
     silentConnect: false,
@@ -103,10 +104,10 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     loadingThreads: false,
     activeTab: "setup",
     confirmTools: false,
-    permissionMode: typeof window === "undefined" ? "request" : (localStorage.getItem("canvas-agent-permission-mode") as AgentPermissionMode) || "request",
+    permissionMode: "request",
     models: [],
-    model: typeof window === "undefined" ? "" : localStorage.getItem("canvas-agent-model") || "",
-    reasoningEffort: typeof window === "undefined" ? "" : (localStorage.getItem("canvas-agent-reasoning-effort") as AgentReasoningEffort) || "",
+    model: "",
+    reasoningEffort: "",
     activity: "就绪",
     bootstrapStatus: null,
     mcpStartupStatuses: {},
@@ -135,8 +136,6 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         } catch {
             return set({ connectError: silent ? "" : "Local URL 格式不正确" });
         }
-        localStorage.setItem("canvas-agent-url", endpoint);
-        localStorage.setItem("canvas-agent-token", token);
         // 只设 enabled=true，由 LocalAgentPanel 的 useEffect 统一负责开 SSE
         set({ url: endpoint, token, enabled: true, silentConnect: silent, activity: "连接中", connectError: "" });
     },
@@ -150,4 +149,8 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     addMessage: (item) => set((state) => ({ messages: [...state.messages, item] })),
     addEventLog: (item) => set((state) => ({ eventLogs: [...state.eventLogs.slice(-160), item] })),
     clearEventLogs: () => set({ eventLogs: [] }),
+    reset: () => {
+        get().disconnectAgent();
+        set({ token: "", connected: false, enabled: false, prompt: "", attachments: [], sending: false, waiting: false, messages: [], tokenUsage: null, eventLogs: [], threads: [], activeThreadId: "", activeTurnId: "", workspacePath: "", activeTab: "setup", models: [], model: "", reasoningEffort: "", permissionMode: "request", pendingTool: null, pendingApprovals: [], canvasContext: null });
+    },
 }));

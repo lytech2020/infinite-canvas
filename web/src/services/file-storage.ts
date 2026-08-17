@@ -1,66 +1,60 @@
-import localforage from "localforage";
-import { nanoid } from "nanoid";
+import { deleteCloudFile, isCloudFileId, resolveCloudFile, uploadCloudFile } from "@/services/api/cloud-files";
 
 export type UploadedFile = { url: string; storageKey: string; bytes: number; mimeType: string; width?: number; height?: number; durationMs?: number };
 
-const store = localforage.createInstance({ name: "infinite-canvas", storeName: "media_files" });
-const objectUrls = new Map<string, string>();
+const urls = new Map<string, string>();
+const remember = (key: string, url: string) => urls.set(key, url);
 
-export async function uploadMediaFile(input: string | Blob, prefix = "file"): Promise<UploadedFile> {
+export async function uploadMediaFile(input: string | Blob, _prefix = "file"): Promise<UploadedFile> {
     const blob = typeof input === "string" ? await (await fetch(input)).blob() : input;
-    const storageKey = `${prefix}:${nanoid()}`;
-    await store.setItem(storageKey, blob);
-    const url = URL.createObjectURL(blob);
-    objectUrls.set(storageKey, url);
-    const meta = blob.type.startsWith("video/") ? await readVideoMeta(url) : blob.type.startsWith("audio/") ? await readAudioMeta(url) : {};
-    return { url, storageKey, bytes: blob.size, mimeType: blob.type || "application/octet-stream", ...meta };
+    const file = await uploadCloudFile(blob);
+    remember(file.id, file.url);
+    const meta = blob.type.startsWith("video/") ? await readVideoMeta(file.url) : blob.type.startsWith("audio/") ? await readAudioMeta(file.url) : {};
+    return { url: file.url, storageKey: file.id, bytes: file.size, mimeType: file.mimeType, ...meta };
 }
 
 export async function resolveMediaUrl(storageKey?: string, fallback = "") {
     if (!storageKey) return fallback;
-    const cached = objectUrls.get(storageKey);
+    const cached = urls.get(storageKey);
     if (cached) return cached;
-    const blob = await store.getItem<Blob>(storageKey);
-    if (!blob) return fallback;
-    const url = URL.createObjectURL(blob);
-    objectUrls.set(storageKey, url);
-    return url;
+    try {
+        const file = await resolveCloudFile(storageKey);
+        remember(storageKey, file.url);
+        return file.url;
+    } catch {
+        return fallback;
+    }
 }
 
 export async function getMediaBlob(storageKey: string) {
-    return store.getItem<Blob>(storageKey);
+    try {
+        const url = await resolveMediaUrl(storageKey);
+        if (!url) return null;
+        const response = await fetch(url);
+        return response.ok ? response.blob() : null;
+    } catch {
+        return null;
+    }
 }
 
-export async function setMediaBlob(storageKey: string, blob: Blob) {
-    await store.setItem(storageKey, blob);
-    const url = URL.createObjectURL(blob);
-    objectUrls.set(storageKey, url);
-    return url;
+export async function importMediaBlob(blob: Blob) {
+    return uploadMediaFile(blob);
 }
 
 export async function deleteStoredMedia(keys: Iterable<string>) {
-    await Promise.all(
-        Array.from(new Set(keys)).map(async (key) => {
-            const url = objectUrls.get(key);
-            if (url) URL.revokeObjectURL(url);
-            objectUrls.delete(key);
-            await store.removeItem(key);
-        }),
-    );
+    await Promise.all(Array.from(new Set(keys)).map(async (key) => {
+        urls.delete(key);
+        await deleteCloudFile(key).catch(() => undefined);
+    }));
 }
 
-export async function cleanupUnusedMedia(usedData: unknown) {
-    const usedKeys = collectMediaStorageKeys(usedData);
-    const unused: string[] = [];
-    await store.iterate((_value, key) => {
-        if (!usedKeys.has(key)) unused.push(key);
-    });
-    await Promise.all(unused.map((key) => store.removeItem(key)));
+export function clearMediaStorageSession() {
+    urls.clear();
 }
 
 export function collectMediaStorageKeys(value: unknown, keys = new Set<string>()) {
     if (!value || typeof value !== "object") return keys;
-    if ("storageKey" in value && typeof value.storageKey === "string" && value.storageKey.includes(":")) keys.add(value.storageKey);
+    if ("storageKey" in value && isCloudFileId(value.storageKey)) keys.add(value.storageKey);
     Object.values(value).forEach((item) => (Array.isArray(item) ? item.forEach((child) => collectMediaStorageKeys(child, keys)) : collectMediaStorageKeys(item, keys)));
     return keys;
 }

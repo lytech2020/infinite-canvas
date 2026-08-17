@@ -175,6 +175,13 @@ export default {
         thirdParty: "第三方插件",
         title: "节点插件",
         warning: "插件代码会在当前页面内直接执行，可访问本地数据（包含 AI API Key）。请仅安装你信任来源的插件。",
+        catalog: {
+            markdown: { name: "Markdown 节点", description: "在画布中编辑与渲染 Markdown" },
+            svg: { name: "SVG 节点", description: "透明背景渲染 SVG，可接收上游文本节点的 SVG 源码" },
+            html: { name: "HTML 节点", description: "使用沙箱 iframe 渲染 HTML，可注入上游文本" },
+            panorama: { name: "3D 全景节点", description: "查看 360° 等距柱状全景图，可从上游图片节点取图" },
+            "sticky-note": { name: "便利贴节点", description: "可自选颜色、双击编辑、拖动即可移动的便利贴" },
+        },
     },
     node: {
         unnamed: "未命名节点",

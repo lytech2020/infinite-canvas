@@ -11,6 +11,7 @@ import { CanvasNodeType, type CanvasNodeData, type ViewportTransform } from "@/t
 import type { CanvasNodeToolbarItem } from "@/types/canvas-plugin";
 import { ImageToolSettingsModal, type ImageToolbarSettingsTool } from "./canvas-image-toolbar-settings-modal";
 import { IMAGE_QUICK_TOOLS_STORAGE_KEY, buildImageToolbarTools, defaultImageQuickToolIds, readImageQuickToolsConfig, type ImageQuickToolId } from "./canvas-image-toolbar-tools";
+import { readUserData, reportCloudSaveError, writeUserData } from "@/services/api/user-data";
 
 type CanvasNodeHoverToolbarProps = {
     node: CanvasNodeData | null;
@@ -87,16 +88,12 @@ export function CanvasNodeHoverToolbar({
     const copyText = useCopyText();
 
     useEffect(() => {
-        try {
-            const stored = window.localStorage.getItem(IMAGE_QUICK_TOOLS_STORAGE_KEY);
+        void readUserData<unknown>(IMAGE_QUICK_TOOLS_STORAGE_KEY).then((stored) => {
             if (!stored) return;
-            const parsed = JSON.parse(stored) as unknown;
-            const config = readImageQuickToolsConfig(parsed);
+            const config = readImageQuickToolsConfig(stored);
             setQuickImageToolIds(config.ids);
             setShowImageToolLabels(config.showLabels);
-        } catch {
-            window.localStorage.removeItem(IMAGE_QUICK_TOOLS_STORAGE_KEY);
-        }
+        }).catch(() => undefined);
     }, []);
 
     useEffect(() => {
@@ -179,7 +176,7 @@ export function CanvasNodeHoverToolbar({
         const config = { ids: draftImageToolIds, showLabels: draftShowImageToolLabels };
         setQuickImageToolIds(config.ids);
         setShowImageToolLabels(config.showLabels);
-        window.localStorage.setItem(IMAGE_QUICK_TOOLS_STORAGE_KEY, JSON.stringify(config));
+        void writeUserData(IMAGE_QUICK_TOOLS_STORAGE_KEY, config).catch(reportCloudSaveError);
         closeImageToolSettings();
     };
 

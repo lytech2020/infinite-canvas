@@ -31,7 +31,7 @@ export default {
         name: "渠道名称",
         protocol: "协议",
         url: "接口地址",
-        azureHint: "模型名称请填写 Azure 中创建的 Deployment Name。Endpoint、API Key 和模型配置仅保存在当前浏览器本地。",
+        azureHint: "模型名称请填写 Azure 中创建的 Deployment Name。云端版渠道凭据由管理后台加密保存。",
         models: "渠道模型",
         selectedModels: "已选 {{count}} 个；为每个模型指定能力并可自定义调用脚本。",
         selectModels: "选择模型",
@@ -78,7 +78,7 @@ export default {
     releases: { open: "查看版本更新", title: "版本更新", currentVersion: "当前版本", latestVersion: "最新版本", checking: "检查中...", check: "检查更新", latest: "最新", current: "当前", unreleased: "未发布", fetchSuccess: "已获取最新版本信息", fetchFailed: "获取最新版本信息失败" },
     webdav: {
         sync: "WebDAV 同步",
-        description: "同步画布、我的资产、生成记录和本地媒体文件，不包含 AI API Key；浏览器会直接连接 WebDAV 服务。",
+        description: "将账号云端的画布、我的资产、生成记录和媒体文件备份到 WebDAV，不包含 AI 渠道密钥；浏览器会直接连接 WebDAV 服务。",
         lastSync: "上次同步 {{time}}",
         neverSynced: "尚未同步",
         url: "WebDAV 地址",

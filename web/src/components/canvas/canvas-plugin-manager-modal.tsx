@@ -22,6 +22,10 @@ export function CanvasPluginManagerModal({ open, onClose }: { open: boolean; onC
 
     const officialPlugins = useMemo(() => plugins.filter((item) => item.official), [plugins]);
     const recordById = useMemo(() => new Map(officialPlugins.map((item) => [item.id, item])), [officialPlugins]);
+    const officialText = (entry: OfficialPluginEntry) => ({
+        name: t(`plugins.catalog.${entry.id}.name`, { defaultValue: entry.name }),
+        description: t(`plugins.catalog.${entry.id}.description`, { defaultValue: entry.description || "" }),
+    });
 
     const loadOfficial = useCallback(async () => {
         setLoadingOfficial(true);
@@ -43,8 +47,8 @@ export function CanvasPluginManagerModal({ open, onClose }: { open: boolean; onC
     const handleInstallOfficial = async (entry: OfficialPluginEntry) => {
         setBusyId(entry.id);
         try {
-            const plugin = await installPluginFromUrl(entry.url, { official: true });
-            message.success(t("plugins.installed", { name: plugin.name }));
+            await installPluginFromUrl(entry.url, { official: true });
+            message.success(t("plugins.installed", { name: officialText(entry).name }));
         } catch (error) {
             message.error(t("plugins.installFailed", { error: error instanceof Error ? error.message : String(error) }));
         } finally {
@@ -151,16 +155,17 @@ export function CanvasPluginManagerModal({ open, onClose }: { open: boolean; onC
                 <div className="thin-scrollbar max-h-[46vh] space-y-2 overflow-auto">
                     {official.map((entry) => {
                         const record = recordById.get(entry.id);
+                        const text = officialText(entry);
                         // 已安装且远程版本更高 → 显示绿点并高亮升级按钮
                         const upgradable = Boolean(record && hasUpgrade(record.version, entry.version));
                         const icon = entry.icon || <Puzzle className="size-4" />;
                         return row(
                             entry.id,
                             upgradable ? withUpgradeDot(icon) : icon,
-                            entry.name,
+                            text.name,
                             // 有升级时标题版本展示为「本地 → 远程」,让用户看清升级到哪个版本
                             upgradable && record ? `${record.version} → ${entry.version}` : entry.version,
-                            entry.description,
+                            text.description,
                             record ? (
                                 installedControls(record, upgradable)
                             ) : (

@@ -19,7 +19,8 @@ export default function LoginPage() {
     const [mode, setMode] = useState<"login" | "register">("login");
     const [registrationOpen, setRegistrationOpen] = useState(true);
     const [submitting, setSubmitting] = useState(false);
-    const redirect = searchParams.get("redirect") || "/";
+    const requestedRedirect = searchParams.get("redirect") || "/";
+    const redirect = requestedRedirect.startsWith("/") && !requestedRedirect.startsWith("//") ? requestedRedirect : "/";
 
     useEffect(() => {
         void fetchRegistrationOpen()

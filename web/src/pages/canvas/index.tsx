@@ -5,8 +5,8 @@ import { Download, FileUp, Plus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { readZip } from "@/lib/zip";
-import { setMediaBlob } from "@/services/file-storage";
-import { setImageBlob } from "@/services/image-storage";
+import { importMediaBlob } from "@/services/file-storage";
+import { importImageBlob } from "@/services/image-storage";
 import { CanvasDeleteProjectsDialog } from "@/components/canvas/canvas-delete-projects-dialog";
 import { CanvasProjectCard } from "@/components/canvas/canvas-project-card";
 import type { CanvasExportFile } from "@/types/canvas-export";
@@ -42,17 +42,19 @@ export default function CanvasPage() {
             const projectFile = zip.get("projects.json");
             if (!projectFile) throw new Error("missing projects.json");
             const data = JSON.parse(await projectFile.text()) as CanvasExportFile;
+            const fileMap = new Map<string, { storageKey: string; url: string }>();
             await Promise.all(
                 data.projects.flatMap((project) =>
                     project.files.map(async (item) => {
                         const blob = zip.get(item.path);
                         if (!blob) return;
                         const typedBlob = blob.type ? blob : blob.slice(0, blob.size, item.mimeType);
-                        await (item.storageKey.startsWith("image:") ? setImageBlob(item.storageKey, typedBlob) : setMediaBlob(item.storageKey, typedBlob));
+                        const stored = item.mimeType.startsWith("image/") ? await importImageBlob(typedBlob) : await importMediaBlob(typedBlob);
+                        fileMap.set(item.storageKey, { storageKey: stored.storageKey, url: stored.url });
                     }),
                 ),
             );
-            data.projects.forEach((item) => importProject(item.project));
+            data.projects.forEach((item) => importProject(rewriteImportedFiles(item.project, fileMap)));
             message.success(t("importSuccess", { count: data.projects.length }));
         } catch {
             message.error(t("importFailed"));
@@ -125,4 +127,17 @@ export default function CanvasPage() {
             <CanvasDeleteProjectsDialog />
         </main>
     );
+}
+
+function rewriteImportedFiles<T>(value: T, files: Map<string, { storageKey: string; url: string }>): T {
+    if (Array.isArray(value)) return value.map((item) => rewriteImportedFiles(item, files)) as T;
+    if (!value || typeof value !== "object") return value;
+    const source = value as Record<string, unknown>;
+    const mapped = typeof source.storageKey === "string" ? files.get(source.storageKey) : undefined;
+    const next = Object.fromEntries(Object.entries(source).map(([key, item]) => [key, rewriteImportedFiles(item, files)]));
+    if (mapped) {
+        next.storageKey = mapped.storageKey;
+        for (const key of ["content", "dataUrl", "url", "coverUrl"]) if (typeof next[key] === "string") next[key] = mapped.url;
+    }
+    return next as T;
 }

@@ -96,7 +96,7 @@ let loaded = false;
 export async function ensurePluginsLoaded() {
     if (loaded) return;
     loaded = true;
-    await usePluginStore.persist.rehydrate();
+    if (!usePluginStore.getState().hydrated) await usePluginStore.getState().loadPlugins();
     const records = usePluginStore.getState().plugins.filter((record) => record.enabled && record.official);
     await Promise.all(
         records.map(async (record) => {
@@ -109,4 +109,9 @@ export async function ensurePluginsLoaded() {
             }
         }),
     );
+}
+
+export function resetLoadedPlugins() {
+    usePluginStore.getState().plugins.forEach((record) => deactivatePlugin(record.id));
+    loaded = false;
 }

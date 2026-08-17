@@ -284,8 +284,6 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
 
     useEffect(() => {
         if (!clientReady || !enabled || !token.trim()) return;
-        localStorage.setItem("canvas-agent-url", endpoint);
-        localStorage.setItem("canvas-agent-token", token);
         const clientId = clientIdRef.current;
         let disposed = false;
         let protocolRejected = false;
@@ -558,8 +556,6 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
             const savedEffort = useAgentStore.getState().reasoningEffort;
             const efforts = current.supportedReasoningEfforts.map((item) => item.reasoningEffort);
             const nextEffort = efforts.includes(savedEffort as AgentReasoningEffort) ? savedEffort as AgentReasoningEffort : current.defaultReasoningEffort || efforts[0];
-            localStorage.setItem("canvas-agent-model", current.model);
-            localStorage.setItem("canvas-agent-reasoning-effort", nextEffort);
             setAgentState({ models, model: current.model, reasoningEffort: nextEffort });
         }).catch((error) => addEventLog("读取模型列表失败", error));
     }, [connected, endpoint, setAgentState, token]);
@@ -801,7 +797,6 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
 
     const changePermissionMode = (nextMode: AgentPermissionMode) => {
         const apply = () => {
-            localStorage.setItem("canvas-agent-permission-mode", nextMode);
             setAgentState({ permissionMode: nextMode });
         };
         if (nextMode !== "full") return apply();
@@ -1300,12 +1295,9 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
                             const selected = models.find((item) => item.model === model);
                             if (!selected) return;
                             const effort = selected.defaultReasoningEffort || selected.supportedReasoningEfforts[0]?.reasoningEffort;
-                            localStorage.setItem("canvas-agent-model", model);
-                            if (effort) localStorage.setItem("canvas-agent-reasoning-effort", effort);
                             setAgentState({ model, ...(effort ? { reasoningEffort: effort } : {}) });
                         }}
                         onReasoningEffortChange={(reasoningEffort) => {
-                            localStorage.setItem("canvas-agent-reasoning-effort", reasoningEffort);
                             setAgentState({ reasoningEffort });
                         }}
                         left={

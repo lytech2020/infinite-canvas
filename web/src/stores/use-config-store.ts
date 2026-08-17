@@ -1,10 +1,10 @@
 import { useMemo } from "react";
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
 import { nanoid } from "nanoid";
 
 import i18n from "@/i18n";
 import { cloudModel, cloudModelsByCapability, decodeCloudModelId, encodeCloudModel } from "@/stores/use-cloud-model-store";
+import { readUserData, reportCloudSaveError, writeUserData } from "@/services/api/user-data";
 
 // 渠道名只在“没有名字”时按当前语言生成，已有名字一律保留,切换语言不改写用户数据
 const defaultChannelName = () => i18n.t("defaultChannel", { ns: "config" });
@@ -69,7 +69,6 @@ export type WebdavSyncConfig = {
 };
 export type ConfigTabKey = "preferences";
 
-export const CONFIG_STORE_KEY = "infinite-canvas:ai_config_store";
 const CHANNEL_MODEL_SEPARATOR = "::";
 const OPENAI_BASE_URL = "https://api.openai.com";
 const AZURE_OPENAI_BASE_URL = "https://admin-6149-resource.services.ai.azure.com";
@@ -131,6 +130,7 @@ export const defaultWebdavSyncConfig: WebdavSyncConfig = {
 };
 
 type ConfigStore = {
+    hydrated: boolean;
     config: AiConfig;
     webdav: WebdavSyncConfig;
     isConfigOpen: boolean;
@@ -143,6 +143,8 @@ type ConfigStore = {
     openConfigDialog: (shouldPromptContinue?: boolean, tab?: ConfigTabKey) => void;
     setConfigDialogOpen: (isOpen: boolean) => void;
     clearPromptContinue: () => void;
+    loadConfig: () => Promise<void>;
+    reset: () => void;
 };
 
 const VIDEO_KEYWORDS = ["seedance", "video", "sora", "veo", "kling", "wan", "hailuo"];
@@ -199,22 +201,82 @@ function isAiConfigReady(_config: AiConfig, model: string) {
     return Boolean(decodeCloudModelId(model) && cloudModel(model));
 }
 
-export const useConfigStore = create<ConfigStore>()(
-    persist(
-        (set, get) => ({
+let configSaveTimer: ReturnType<typeof setTimeout> | null = null;
+let configSaveTask: Promise<void> | null = null;
+let configLoadVersion = 0;
+let configSaveVersion = 0;
+let pendingConfig: AiConfig | null = null;
+function saveConfig(config: AiConfig) {
+    if (configSaveTimer) clearTimeout(configSaveTimer);
+    pendingConfig = config;
+    const version = configSaveVersion;
+    configSaveTimer = setTimeout(() => {
+        configSaveTimer = null;
+        pendingConfig = null;
+        const safe = { ...config, baseUrl: "", apiKey: "", apiFormat: "openai" as const, azureApiVersion: "", channels: [], models: [], systemPrompt: "" };
+        if (version === configSaveVersion) {
+            const task = writeUserData("ai_config", safe).catch(reportCloudSaveError).finally(() => { if (configSaveTask === task) configSaveTask = null; });
+            configSaveTask = task;
+        }
+    }, 200);
+}
+
+export async function flushPendingConfig() {
+    if (!pendingConfig) {
+        await configSaveTask;
+        return;
+    }
+    if (configSaveTimer) clearTimeout(configSaveTimer);
+    configSaveTimer = null;
+    const config = pendingConfig;
+    pendingConfig = null;
+    await configSaveTask;
+    await writeUserData("ai_config", { ...config, baseUrl: "", apiKey: "", apiFormat: "openai" as const, azureApiVersion: "", channels: [], models: [], systemPrompt: "" });
+}
+
+function normalizeSavedConfig(saved?: Partial<AiConfig> | null) {
+    const config = { ...defaultConfig, ...(saved || {}) };
+    if (!Array.isArray(saved?.channels)) config.channels = [];
+    const channels = normalizeChannels(config);
+    return {
+        ...config,
+        channelMode: "local" as const,
+        apiFormat: normalizeApiFormat(config.apiFormat),
+        azureApiVersion: config.azureApiVersion || AZURE_OPENAI_API_VERSION,
+        channels,
+        models: modelOptionsFromChannels(channels),
+        imageModel: normalizeModelOptionValue(config.imageModel || config.model, channels),
+        videoModel: normalizeModelOptionValue(config.videoModel, channels),
+        textModel: normalizeModelOptionValue(config.textModel || config.model, channels),
+        audioModel: normalizeModelOptionValue(config.audioModel || defaultConfig.audioModel, channels),
+        audioVoice: config.audioVoice || defaultConfig.audioVoice,
+        audioFormat: config.audioFormat || defaultConfig.audioFormat,
+        audioSpeed: config.audioSpeed || defaultConfig.audioSpeed,
+        audioInstructions: config.audioInstructions || "",
+        reasoningEffort: config.reasoningEffort || "auto",
+        videoSeconds: config.videoSeconds || "6",
+        vquality: config.vquality || "720",
+        videoGenerateAudio: config.videoGenerateAudio || "true",
+        videoWatermark: config.videoWatermark || "false",
+        canvasImageCount: config.canvasImageCount || "3",
+    };
+}
+
+export const useConfigStore = create<ConfigStore>()((set, get) => ({
+            hydrated: false,
             config: defaultConfig,
             webdav: defaultWebdavSyncConfig,
             isConfigOpen: false,
             configTab: "preferences",
             shouldPromptContinue: false,
-            updateConfig: (key, value) =>
-                set((state) => ({
-                    config: {
-                        ...state.config,
-                        [key]: value,
-                    },
-                })),
-            clearProviderConfig: () => set((state) => ({ config: { ...state.config, baseUrl: "", apiKey: "", apiFormat: "openai", azureApiVersion: "", channels: [], models: [], systemPrompt: "" } })),
+            updateConfig: (key, value) => {
+                const config = { ...get().config, [key]: value };
+                set({ config }); saveConfig(config);
+            },
+            clearProviderConfig: () => {
+                const config = { ...get().config, baseUrl: "", apiKey: "", apiFormat: "openai" as const, azureApiVersion: "", channels: [], models: [], systemPrompt: "" };
+                set({ config });
+            },
             updateWebdavConfig: (key, value) =>
                 set((state) => ({
                     webdav: {
@@ -226,48 +288,21 @@ export const useConfigStore = create<ConfigStore>()(
             openConfigDialog: (shouldPromptContinue = false, configTab = "preferences") => set({ isConfigOpen: true, shouldPromptContinue, configTab }),
             setConfigDialogOpen: (isConfigOpen) => set({ isConfigOpen }),
             clearPromptContinue: () => set({ shouldPromptContinue: false }),
-        }),
-        {
-            name: CONFIG_STORE_KEY,
-            partialize: (state) => ({ config: { ...state.config, baseUrl: "", apiKey: "", apiFormat: "openai" as const, azureApiVersion: "", channels: [], models: [], systemPrompt: "" } }),
-            merge: (persisted, current) => {
-                const persistedState = (persisted || {}) as Partial<ConfigStore>;
-                const persistedConfig = (persistedState.config || {}) as Partial<AiConfig>;
-                const persistedWebdav = (persistedState.webdav || {}) as Partial<WebdavSyncConfig>;
-                const config = { ...defaultConfig, ...persistedConfig };
-                if (!Array.isArray(persistedConfig.channels)) config.channels = [];
-                const channels = normalizeChannels(config);
-                const models = modelOptionsFromChannels(channels);
-                return {
-                    ...current,
-                    webdav: { ...defaultWebdavSyncConfig, ...persistedWebdav },
-                    config: {
-                        ...config,
-                        channelMode: "local",
-                        apiFormat: normalizeApiFormat(config.apiFormat),
-                        azureApiVersion: config.azureApiVersion || AZURE_OPENAI_API_VERSION,
-                        channels,
-                        models,
-                        imageModel: normalizeModelOptionValue(config.imageModel || config.model, channels),
-                        videoModel: normalizeModelOptionValue(config.videoModel, channels),
-                        textModel: normalizeModelOptionValue(config.textModel || config.model, channels),
-                        audioModel: normalizeModelOptionValue(config.audioModel || defaultConfig.audioModel, channels),
-                        audioVoice: config.audioVoice || defaultConfig.audioVoice,
-                        audioFormat: config.audioFormat || defaultConfig.audioFormat,
-                        audioSpeed: config.audioSpeed || defaultConfig.audioSpeed,
-                        audioInstructions: config.audioInstructions || "",
-                        reasoningEffort: config.reasoningEffort || "auto",
-                        videoSeconds: config.videoSeconds || "6",
-                        vquality: config.vquality || "720",
-                        videoGenerateAudio: config.videoGenerateAudio || "true",
-                        videoWatermark: config.videoWatermark || "false",
-                        canvasImageCount: config.canvasImageCount || "3",
-                    },
-                };
+            loadConfig: async () => {
+                const version = ++configLoadVersion;
+                const config = normalizeSavedConfig(await readUserData<Partial<AiConfig>>("ai_config"));
+                if (version === configLoadVersion) set({ config, hydrated: true });
             },
-        },
-    ),
-);
+            reset: () => {
+                configLoadVersion += 1;
+                configSaveVersion += 1;
+                if (configSaveTimer) clearTimeout(configSaveTimer);
+                configSaveTimer = null;
+                configSaveTask = null;
+                pendingConfig = null;
+                set({ hydrated: false, config: defaultConfig, webdav: defaultWebdavSyncConfig, isConfigOpen: false, shouldPromptContinue: false });
+            },
+}));
 
 export function useEffectiveConfig() {
     const config = useConfigStore((state) => state.config);

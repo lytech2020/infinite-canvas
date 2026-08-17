@@ -1,12 +1,18 @@
-import localforage from "localforage";
-
 import { upscaleDataUrl } from "@/lib/canvas/canvas-image-data";
 import type { AgentAttachment, AgentChatItem } from "@/stores/use-agent-store";
+import { createCloudKeyValueStore } from "@/services/api/user-data";
+import { deleteStoredImages, resolveImageUrl, uploadImage } from "@/services/image-storage";
 
 export type StoredAgentUserMessage = Pick<AgentChatItem, "id" | "text" | "attachments"> & { role: "user"; historyText: string; threadId?: string; turnId?: string };
 
-const store = localforage.createInstance({ name: "infinite-canvas", storeName: "agent_chat_messages" });
+const store = createCloudKeyValueStore("agent_chat");
 const mutations = new Map<string, Promise<void>>();
+let mutationVersion = 0;
+
+export function resetAgentChatStorage() {
+    mutationVersion += 1;
+    mutations.clear();
+}
 const indexKey = (threadId: string) => `thread:${threadId}`;
 const messageKey = (threadId: string, messageId: string) => `message:${threadId}:${messageId}`;
 const pendingKey = (messageId: string) => `pending:${messageId}`;
@@ -23,20 +29,30 @@ export async function saveAgentUserMessage(threadId: string, message: StoredAgen
 export async function savePendingAgentUserMessage(message: StoredAgentUserMessage) {
     if (!message.id || !message.attachments?.length) return;
     await mutateScopes([pendingMutationKey(message.id)], async () => {
-        const attachments = await Promise.all(message.attachments!.map(createThumbnail));
-        await store.setItem(pendingKey(message.id), { ...message, threadId: undefined, turnId: undefined, attachments });
+        const attachments = await createThumbnails(message.attachments!);
+        try {
+            await store.setItem(pendingKey(message.id), { ...message, threadId: undefined, turnId: undefined, attachments });
+        } catch (error) {
+            await deleteStoredImages(attachments.map((item) => item.storageKey).filter((key): key is string => Boolean(key)));
+            throw error;
+        }
     });
 }
 
 export async function deletePendingAgentUserMessage(messageId: string) {
     if (!messageId) return;
-    await mutateScopes([pendingMutationKey(messageId)], () => store.removeItem(pendingKey(messageId)));
+    await mutateScopes([pendingMutationKey(messageId)], async () => {
+        const message = await store.getItem<StoredAgentUserMessage>(pendingKey(messageId));
+        await store.removeItem(pendingKey(messageId));
+        await deleteStoredImages((message?.attachments || []).map((item) => item.storageKey).filter((key): key is string => Boolean(key)));
+    });
 }
 
 export async function readAgentUserMessages(threadId: string) {
     await mutations.get(threadMutationKey(threadId))?.catch(() => undefined);
     const ids = (await store.getItem<string[]>(indexKey(threadId))) || [];
-    return (await Promise.all(ids.map((id) => store.getItem<StoredAgentUserMessage>(messageKey(threadId, id))))).filter((item): item is StoredAgentUserMessage => Boolean(item));
+    const messages = (await Promise.all(ids.map((id) => store.getItem<StoredAgentUserMessage>(messageKey(threadId, id))))).filter((item): item is StoredAgentUserMessage => Boolean(item));
+    return Promise.all(messages.map(hydrateMessage));
 }
 
 /** Bind a pending message to the server thread, preserving an already-known turn id. */
@@ -78,16 +94,23 @@ export async function deleteAgentThreadMessages(threadIds: string[]) {
     await mutateScopes(threadIds.map(threadMutationKey), async () => {
         await Promise.all(threadIds.map(async (threadId) => {
             const ids = (await store.getItem<string[]>(indexKey(threadId))) || [];
+            const messages = await Promise.all(ids.map((id) => store.getItem<StoredAgentUserMessage>(messageKey(threadId, id))));
             await Promise.all(ids.map((id) => store.removeItem(messageKey(threadId, id))));
             await store.removeItem(indexKey(threadId));
+            await deleteStoredImages(messages.flatMap((message) => (message?.attachments || []).map((item) => item.storageKey).filter((key): key is string => Boolean(key))));
         }));
     });
 }
 
 async function saveThreadAgentUserMessage(threadId: string, message: StoredAgentUserMessage) {
     await mutateScopes([threadMutationKey(threadId)], async () => {
-        const attachments = await Promise.all(message.attachments!.map(createThumbnail));
-        await putThreadMessage(threadId, messageKey(threadId, message.id), { ...message, threadId, attachments });
+        const attachments = await createThumbnails(message.attachments!);
+        try {
+            await putThreadMessage(threadId, messageKey(threadId, message.id), { ...message, threadId, attachments });
+        } catch (error) {
+            await deleteStoredImages(attachments.map((item) => item.storageKey).filter((key): key is string => Boolean(key)));
+            throw error;
+        }
     });
 }
 
@@ -114,8 +137,12 @@ async function removeThreadMessage(threadId: string, key: string, messageId: str
 }
 
 async function mutateScopes(scopes: string[], mutation: () => Promise<void>) {
+    const version = mutationVersion;
     const ids = [...new Set(scopes.filter(Boolean))].sort();
-    const operation = Promise.all(ids.map((id) => mutations.get(id)?.catch(() => undefined))).then(mutation);
+    const operation = Promise.all(ids.map((id) => mutations.get(id)?.catch(() => undefined))).then(() => {
+        if (version !== mutationVersion) throw new DOMException("账号已切换", "AbortError");
+        return mutation();
+    });
     ids.forEach((id) => mutations.set(id, operation));
     try {
         await operation;
@@ -128,5 +155,26 @@ async function mutateScopes(scopes: string[], mutation: () => Promise<void>) {
 
 async function createThumbnail(attachment: AgentAttachment): Promise<AgentAttachment> {
     const dataUrl = Math.max(attachment.width, attachment.height) > 512 ? await upscaleDataUrl(attachment.dataUrl, { targetLongEdge: 512, algorithm: "high" }) : attachment.dataUrl;
-    return { ...attachment, size: dataUrl.length, url: dataUrl, dataUrl };
+    const stored = await uploadImage(dataUrl);
+    return { ...attachment, size: stored.bytes, type: stored.mimeType, url: "", dataUrl: "", storageKey: stored.storageKey };
+}
+
+async function createThumbnails(attachments: AgentAttachment[]) {
+    const stored: AgentAttachment[] = [];
+    try {
+        for (const attachment of attachments) stored.push(await createThumbnail(attachment));
+        return stored;
+    } catch (error) {
+        await deleteStoredImages(stored.map((item) => item.storageKey).filter((key): key is string => Boolean(key)));
+        throw error;
+    }
+}
+
+async function hydrateMessage(message: StoredAgentUserMessage) {
+    if (!message.attachments?.length) return message;
+    return { ...message, attachments: await Promise.all(message.attachments.map(async (attachment) => {
+        if (!attachment.storageKey) return attachment;
+        const url = await resolveImageUrl(attachment.storageKey, attachment.dataUrl || attachment.url);
+        return { ...attachment, url, dataUrl: url };
+    })) };
 }
