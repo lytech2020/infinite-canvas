@@ -1,8 +1,7 @@
-import localforage from "localforage";
-
 import type { PluginStorage } from "@/types/canvas-plugin";
+import { createCloudKeyValueStore } from "@/services/api/user-data";
 
-// Lightweight canvas event bus for communication between nodes and plugins.
+// 画布内轻量事件总线,供节点/插件互相通信
 type Handler = (payload: unknown) => void;
 const handlers = new Map<string, Set<Handler>>();
 
@@ -26,13 +25,13 @@ export function onCanvasEvent(event: string, handler: Handler) {
     return () => set!.delete(handler);
 }
 
-// Private plugin storage isolated by pluginId namespace.
-const stores = new Map<string, LocalForage>();
+// 插件私有存储,按 pluginId 命名空间隔离
+const stores = new Map<string, ReturnType<typeof createCloudKeyValueStore>>();
 
 export function createPluginStorage(pluginId: string): PluginStorage {
     let store = stores.get(pluginId);
     if (!store) {
-        store = localforage.createInstance({ name: "infinite-canvas-plugins", storeName: pluginId });
+        store = createCloudKeyValueStore(`plugin:${pluginId}`);
         stores.set(pluginId, store);
     }
     return {

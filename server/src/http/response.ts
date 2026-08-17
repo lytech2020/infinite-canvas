@@ -16,6 +16,7 @@ export const errorStatus = {
     FORBIDDEN: 403,
     NOT_FOUND: 404,
     DUPLICATE_REQUEST: 409,
+    CONFLICT: 409,
     JOB_NOT_CANCELABLE: 409,
     CONCURRENCY_LIMIT: 429,
     DAILY_CALL_LIMIT: 429,
@@ -72,6 +73,10 @@ export function errorHandler(error: unknown, _req: Request, res: Response, _next
     }
     if (error instanceof ZodError) {
         res.status(errorStatus.VALIDATION_FAILED).json({ error: { code: "VALIDATION_FAILED", message: "请求参数不合法", details: { issues: error.issues.map((issue) => ({ path: issue.path.join("."), message: issue.message })) } } });
+        return;
+    }
+    if (error && typeof error === "object" && "type" in error && error.type === "entity.too.large") {
+        res.status(errorStatus.FILE_TOO_LARGE).json({ error: { code: "FILE_TOO_LARGE", message: "请求内容超过大小限制" } });
         return;
     }
     if (error instanceof Prisma.PrismaClientKnownRequestError && (error.code === "P2024" || error.code === "P2028")) {

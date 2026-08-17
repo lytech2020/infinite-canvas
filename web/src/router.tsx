@@ -2,6 +2,7 @@ import { createBrowserRouter, Outlet } from "react-router-dom";
 
 import { AnalyticsTracker } from "@/components/layout/analytics-tracker";
 import { RequireAdmin } from "@/components/layout/require-admin";
+import { RequireUser } from "@/components/layout/require-user";
 import AdminLayout from "@/layouts/admin-layout";
 import UserLayout from "@/layouts/user-layout";
 import AdminCatalogPage from "@/pages/admin/catalog";
@@ -29,11 +30,11 @@ export const router = createBrowserRouter([
         ),
         children: [
             { path: "/", element: <HomePage /> },
-            { path: "/image", element: <ImagePage /> },
-            { path: "/video", element: <VideoPage /> },
-            { path: "/assets", element: <AssetsPage /> },
-            { path: "/canvas", element: <CanvasPage /> },
-            { path: "/canvas/:id", element: <CanvasProjectPage /> },
+            { path: "/image", element: <RequireUser><ImagePage /></RequireUser> },
+            { path: "/video", element: <RequireUser><VideoPage /></RequireUser> },
+            { path: "/assets", element: <RequireUser><AssetsPage /></RequireUser> },
+            { path: "/canvas", element: <RequireUser><CanvasPage /></RequireUser> },
+            { path: "/canvas/:id", element: <RequireUser><CanvasProjectPage /></RequireUser> },
             { path: "/login", element: <LoginPage /> },
             { path: "/privacy", element: <PrivacyPage /> },
             {

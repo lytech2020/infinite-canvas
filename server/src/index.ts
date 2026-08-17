@@ -16,6 +16,7 @@ import { generationsRouter } from "./http/routes/generations.js";
 import { modelsRouter } from "./http/routes/models.js";
 import { projectsRouter } from "./http/routes/projects.js";
 import { uploadsRouter } from "./http/routes/uploads.js";
+import { userDataRouter } from "./http/routes/user-data.js";
 import { logger } from "./logger.js";
 import { releaseStaleJobs } from "./modules/generation/service.js";
 import { cleanupExpiredUploads } from "./modules/storage/uploads.js";
@@ -23,20 +24,21 @@ import { cleanupExpiredUploads } from "./modules/storage/uploads.js";
 const app = express();
 if (env.isProduction) app.set("trust proxy", 1);
 
-app.use(express.json({ limit: "1mb" }));
 app.use(cookieParser());
 app.use(attachUser);
 app.use("/api/v1", (req, _res, next) => {
     if (["GET", "HEAD", "OPTIONS"].includes(req.method) || req.get("X-Requested-With") === "infinite-canvas") return next();
     next(new ApiError("FORBIDDEN", "请求来源校验失败"));
 });
+app.use("/api/v1/projects", requireUser, express.json({ limit: "10mb" }), projectsRouter);
+app.use("/api/v1/user-data", requireUser, express.json({ limit: "5mb" }), userDataRouter);
+app.use(express.json({ limit: "1mb" }));
 
 app.get("/api/v1/health", (_req, res) => {
     res.json({ data: { ok: true } });
 });
 app.use("/api/v1/auth", authRouter);
 app.use("/api/v1/models", requireUser, modelsRouter);
-app.use("/api/v1/projects", requireUser, projectsRouter);
 app.use("/api/v1/generations", requireUser, generationsRouter);
 app.use("/api/v1/uploads", requireUser, uploadsRouter);
 

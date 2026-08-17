@@ -5,19 +5,18 @@ import { Download, FileUp, Plus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { readZip } from "@/lib/zip";
-import { setMediaBlob } from "@/services/file-storage";
-import { setImageBlob } from "@/services/image-storage";
+import { importMediaBlob } from "@/services/file-storage";
+import { importImageBlob } from "@/services/image-storage";
 import { CanvasDeleteProjectsDialog } from "@/components/canvas/canvas-delete-projects-dialog";
 import { CanvasProjectCard } from "@/components/canvas/canvas-project-card";
 import type { CanvasExportFile } from "@/types/canvas-export";
 import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import { useCanvasUiStore } from "@/stores/canvas/use-canvas-ui-store";
 import { exportCanvasProjects } from "@/lib/canvas/canvas-export";
-import { hasAgentUrlBootstrap } from "@/lib/agent/agent-url-bootstrap";
 
 export default function CanvasPage() {
     const { message } = App.useApp();
-    const { t } = useTranslation();
+    const { t } = useTranslation("canvas");
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
     const inputRef = useRef<HTMLInputElement>(null);
@@ -33,10 +32,9 @@ export default function CanvasPage() {
     const agentMode = mode === "new" || mode === "recent" || mode === "choose";
     const agentQuery = agentMode ? `?${searchParams.toString()}` : "";
     const enterProject = (id: string) => {
-        const agentHash = hasAgentUrlBootstrap(window.location.hash) ? window.location.hash : "";
-        navigate(`/canvas/${id}${agentQuery}${agentHash}`, { replace: Boolean(agentHash) });
+        navigate(`/canvas/${id}${agentQuery}`);
     };
-    const createAndEnter = () => enterProject(createProject(t("canvas.defaultTitle", { count: projects.length + 1 })));
+    const createAndEnter = () => enterProject(createProject(t("defaultProjectName", { number: projects.length + 1 })));
     const importCanvas = async (file?: File) => {
         if (!file) return;
         try {
@@ -44,20 +42,22 @@ export default function CanvasPage() {
             const projectFile = zip.get("projects.json");
             if (!projectFile) throw new Error("missing projects.json");
             const data = JSON.parse(await projectFile.text()) as CanvasExportFile;
+            const fileMap = new Map<string, { storageKey: string; url: string }>();
             await Promise.all(
                 data.projects.flatMap((project) =>
                     project.files.map(async (item) => {
                         const blob = zip.get(item.path);
                         if (!blob) return;
                         const typedBlob = blob.type ? blob : blob.slice(0, blob.size, item.mimeType);
-                        await (item.storageKey.startsWith("image:") ? setImageBlob(item.storageKey, typedBlob) : setMediaBlob(item.storageKey, typedBlob));
+                        const stored = item.mimeType.startsWith("image/") ? await importImageBlob(typedBlob) : await importMediaBlob(typedBlob);
+                        fileMap.set(item.storageKey, { storageKey: stored.storageKey, url: stored.url });
                     }),
                 ),
             );
-            data.projects.forEach((item) => importProject(item.project));
-            message.success(t("canvas.imported", { count: data.projects.length }));
+            data.projects.forEach((item) => importProject(rewriteImportedFiles(item.project, fileMap)));
+            message.success(t("importSuccess", { count: data.projects.length }));
         } catch {
-            message.error(t("canvas.importFailed"));
+            message.error(t("importFailed"));
         } finally {
             if (inputRef.current) inputRef.current.value = "";
         }
@@ -66,46 +66,46 @@ export default function CanvasPage() {
     useEffect(() => {
         if (!hydrated || autoOpenRef.current || (mode !== "new" && mode !== "recent")) return;
         autoOpenRef.current = true;
-        enterProject(mode === "new" ? createProject(t("canvas.defaultTitle", { count: projects.length + 1 })) : projects[0]?.id || createProject(t("canvas.defaultTitle", { count: projects.length + 1 })));
+        enterProject(mode === "new" ? createProject(t("defaultProjectName", { number: projects.length + 1 })) : projects[0]?.id || createProject(t("defaultProjectName", { number: projects.length + 1 })));
     }, [createProject, hydrated, mode, projects, t]);
 
-    if (hydrated && (mode === "new" || mode === "recent")) return <main className="flex h-full items-center justify-center bg-background text-sm text-stone-500">{t("canvas.opening")}</main>;
+    if (hydrated && (mode === "new" || mode === "recent")) return <main className="flex h-full items-center justify-center bg-background text-sm text-stone-500">{t("opening")}</main>;
 
     return (
         <main className="h-full overflow-auto bg-background text-stone-950 dark:text-stone-100">
             <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-6 py-10">
                 <header className="flex flex-wrap items-end justify-between gap-4 border-b border-stone-200 pb-6 dark:border-stone-800">
                     <div>
-                        <p className="text-xs text-stone-500">{t("canvas.library")}</p>
-                        <h1 className="mt-3 text-3xl font-semibold">{t("canvas.title")}</h1>
+                        <p className="text-xs text-stone-500">{t("library")}</p>
+                        <h1 className="mt-3 text-3xl font-semibold">{t("title")}</h1>
                     </div>
                     <div className="flex items-center gap-2">
                         {selectedIds.length ? (
                             <>
-                                <Button disabled={!hydrated} icon={<Download className="size-4" />} onClick={() => void exportCanvasProjects(projects.filter((project) => selectedIds.includes(project.id)), `${t("canvas.title")}-${selectedIds.length}`)}>
-                                    {t("canvas.exportSelected")}
+                                <Button disabled={!hydrated} icon={<Download className="size-4" />} onClick={() => void exportCanvasProjects(projects.filter((project) => selectedIds.includes(project.id)), t("exportName", { count: selectedIds.length }))}>
+                                    {t("exportSelected")}
                                 </Button>
                                 <Button disabled={!hydrated} onClick={() => setDeleteIds(selectedIds)}>
-                                    {t("canvas.deleteSelected")}
+                                    {t("deleteSelected")}
                                 </Button>
                             </>
                         ) : null}
                         {projects.length ? (
                             <Button disabled={!hydrated} onClick={() => setDeleteIds(projects.map((project) => project.id))}>
-                                {t("canvas.deleteAll")}
+                                {t("deleteAll")}
                             </Button>
                         ) : null}
                         <Button disabled={!hydrated} icon={<FileUp className="size-4" />} onClick={() => inputRef.current?.click()}>
-                            {t("canvas.import")}
+                            {t("import")}
                         </Button>
                         <Button disabled={!hydrated} type="primary" icon={<Plus className="size-4" />} onClick={createAndEnter}>
-                            {t("canvas.create")}
+                            {t("create")}
                         </Button>
                     </div>
                 </header>
 
                 {!hydrated ? (
-                    <section className="flex min-h-[360px] items-center justify-center border-y border-stone-200 text-sm text-stone-500 dark:border-stone-800">{t("canvas.loading")}</section>
+                    <section className="flex min-h-[360px] items-center justify-center border-y border-stone-200 text-sm text-stone-500 dark:border-stone-800">{t("loading")}</section>
                 ) : projects.length ? (
                     <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
                         {projects.map((project) => (
@@ -114,10 +114,10 @@ export default function CanvasPage() {
                     </div>
                 ) : (
                     <section className="flex min-h-[360px] flex-col items-center justify-center border-y border-stone-200 text-center dark:border-stone-800">
-                        <h2 className="text-xl font-medium">{t("canvas.empty")}</h2>
-                        <p className="mt-3 text-sm text-stone-500">{t("canvas.emptyDescription")}</p>
+                        <h2 className="text-xl font-medium">{t("emptyTitle")}</h2>
+                        <p className="mt-3 text-sm text-stone-500">{t("emptyDescription")}</p>
                         <Button type="primary" className="mt-6" icon={<Plus className="size-4" />} onClick={createAndEnter}>
-                            {t("canvas.create")}
+                            {t("create")}
                         </Button>
                     </section>
                 )}
@@ -127,4 +127,17 @@ export default function CanvasPage() {
             <CanvasDeleteProjectsDialog />
         </main>
     );
+}
+
+function rewriteImportedFiles<T>(value: T, files: Map<string, { storageKey: string; url: string }>): T {
+    if (Array.isArray(value)) return value.map((item) => rewriteImportedFiles(item, files)) as T;
+    if (!value || typeof value !== "object") return value;
+    const source = value as Record<string, unknown>;
+    const mapped = typeof source.storageKey === "string" ? files.get(source.storageKey) : undefined;
+    const next = Object.fromEntries(Object.entries(source).map(([key, item]) => [key, rewriteImportedFiles(item, files)]));
+    if (mapped) {
+        next.storageKey = mapped.storageKey;
+        for (const key of ["content", "dataUrl", "url", "coverUrl"]) if (typeof next[key] === "string") next[key] = mapped.url;
+    }
+    return next as T;
 }

@@ -327,7 +327,7 @@ server/
 
 | 变量 | 必填 | 说明 |
 | --- | :---: | --- |
-| `VITE_API_BASE_URL` | 否 | 默认空，走同源 `/api`；跨域部署时填写完整地址 |
+| `VITE_API_BASE_URL` | 否 | 保持为空，走同源 `/api`；当前不支持跨域部署 |
 
 渠道 Base URL、API Key、API Version 和 Deployment Name 全部通过管理后台写入数据库，不再作为环境变量或前端配置存在。
 

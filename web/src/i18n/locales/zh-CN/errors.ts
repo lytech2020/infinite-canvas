@@ -1,6 +1,10 @@
 export default {
     requestCancelled: "请求已取消",
     requestFailed: "请求失败",
+    cloudSaveFailed: "云端保存失败，请检查网络后重试",
+    cloudSaveConflict: "画布已在其他页面更新，已重新加载最新版本",
+    cloudLoadFailed: "云端数据加载失败，请刷新后重试",
+    authSessionExpired: "登录已过期，尚未保存的修改可能无法同步，请重新登录",
     requestFailedHttp: "请求失败（HTTP {{status}}），请检查 Base URL 和 API Key 是否正确",
     authFailed: "鉴权失败，请检查 API Key、套餐权限或模型权限",
     rateLimited: "请求被限流或额度不足，请稍后重试",
@@ -95,6 +99,7 @@ export default {
         ACCOUNT_DISABLED: "当前账号已停用，请联系管理员",
         FORBIDDEN: "没有权限执行该操作",
         NOT_FOUND: "内容不存在或已被删除",
+        CONFLICT: "内容已在其他页面更新，请重新加载后重试",
         RATE_LIMITED: "操作过于频繁，请稍后重试",
         CONCURRENCY_LIMIT: "当前运行任务过多，请等待任务完成",
         DAILY_CALL_LIMIT: "今日调用次数已用完，请明天再试",

@@ -35,6 +35,7 @@ model User {
     projects     Project[]
     jobs         GenerationJob[]
     uploads      Upload[]
+    userData     UserData[]
 
     @@map("users")
 }
@@ -53,11 +54,13 @@ model Session {
     @@map("sessions")
 }
 
-/** 画布项目的最小记录。id 沿用前端生成的画布 ID，画布正文仍保存在浏览器。 */
+/** 用户画布。正文与项目元数据一起保存在云端。 */
 model Project {
     id        String    @id
     userId    String    @map("user_id")
     name      String
+    data      Json      @default("{}")
+    version   Int       @default(0)
     createdAt DateTime  @default(now()) @map("created_at")
     updatedAt DateTime  @updatedAt @map("updated_at")
     // 软删除：画布删除后仍保留项目名称快照和历史用量关联
@@ -67,6 +70,19 @@ model Project {
 
     @@index([userId, updatedAt])
     @@map("projects")
+}
+
+/** 按用户隔离的应用业务数据，例如素材、工作台历史、插件和提示词源。 */
+model UserData {
+    userId    String   @map("user_id")
+    key       String
+    value     Json
+    bytes     Int      @default(0)
+    updatedAt DateTime @updatedAt @map("updated_at")
+    user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+    @@id([userId, key])
+    @@map("user_data")
 }
 
 enum ApiFormat {
@@ -230,13 +246,31 @@ model Upload {
     mimeType   String       @map("mime_type")
     size       Int
     status     UploadStatus @default(pending)
+    persistent Boolean      @default(false)
+    deletePending Boolean   @default(false) @map("delete_pending")
+    deleteLocked  Boolean   @default(false) @map("delete_locked")
     expiresAt  DateTime?    @map("expires_at")
     createdAt  DateTime     @default(now()) @map("created_at")
     user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+    references UploadReference[]
 
     @@index([userId, createdAt])
     @@index([status, expiresAt])
+    @@unique([userId, id])
     @@map("uploads")
+}
+
+/** 业务 JSON 对永久文件的显式引用，用于安全、低成本地回收孤儿对象。 */
+model UploadReference {
+    uploadId   String @map("upload_id")
+    userId     String @map("user_id")
+    sourceType String @map("source_type")
+    sourceKey  String @map("source_key")
+    upload     Upload @relation(fields: [userId, uploadId], references: [userId, id], onDelete: Cascade)
+
+    @@id([userId, uploadId, sourceType, sourceKey])
+    @@index([userId, sourceType, sourceKey])
+    @@map("upload_references")
 }
 
 /** 管理员操作审计，例如停用账号、查看提示词。 */

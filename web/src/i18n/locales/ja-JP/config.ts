@@ -31,7 +31,7 @@ export default {
         name: "チャネル名",
         protocol: "プロトコル",
         url: "エンドポイント",
-        azureHint: "モデル名には Azure で作成した Deployment Name を入力してください。Endpoint、API Key、モデル設定はこのブラウザ内にのみ保存されます。",
+        azureHint: "モデル名には Azure で作成した Deployment Name を入力してください。クラウド版のチャネル認証情報は管理画面で暗号化して保存されます。",
         models: "チャネルモデル",
         selectedModels: "{{count}} 件選択済み。各モデルの用途と呼び出しスクリプトを設定できます。",
         selectModels: "モデルを選択",
@@ -78,7 +78,7 @@ export default {
     releases: { open: "更新履歴を表示", title: "バージョン更新", currentVersion: "現在のバージョン", latestVersion: "最新バージョン", checking: "確認中...", check: "更新を確認", latest: "最新", current: "現在", unreleased: "未公開", fetchSuccess: "最新バージョン情報を取得しました", fetchFailed: "最新バージョン情報を取得できませんでした" },
     webdav: {
         sync: "WebDAV 同期",
-        description: "キャンバス、マイアセット、生成履歴、ローカルメディアを同期します。AI API Key は含まれず、ブラウザから WebDAV に直接接続します。",
+        description: "アカウントのクラウド上にあるキャンバス、マイアセット、生成履歴、メディアを WebDAV にバックアップします。ブラウザから WebDAV に直接接続します。",
         lastSync: "前回の同期：{{time}}",
         neverSynced: "未同期",
         url: "WebDAV URL",
