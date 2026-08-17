@@ -6,7 +6,7 @@ import { saveAs } from "file-saver";
 import { Download } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 
-import { AdminPageHeader, capabilityLabels, integer, MetricCard, statusLabels, usd } from "@/pages/admin/components";
+import { AdminPageHeader, capabilityLabels, integer, MetricCard, statusLabels } from "@/pages/admin/components";
 import { downloadAdminUsage, fetchAdminModels, fetchAdminUsage, type Capability, type JobStatus, type UsageFilters } from "@/services/api/admin";
 import { fetchAdminUsers } from "@/services/api/auth";
 
@@ -58,7 +58,7 @@ export default function AdminUsagePage() {
         <div className="mx-auto max-w-7xl">
             <AdminPageHeader
                 title="用量明细"
-                description="按任务查看模型、Token、状态和美元成本。"
+                description="按任务查看模型、Token、媒体用量和状态。"
                 extra={
                     <Button icon={<Download className="size-4" />} loading={exporting} onClick={() => void exportCsv()}>
                         导出 CSV
@@ -110,10 +110,9 @@ export default function AdminUsagePage() {
                 />
                 <DatePicker.RangePicker value={dates} onChange={(value) => resetPage(setDates, value as [Dayjs, Dayjs] | null)} />
             </div>
-            <section className="mb-6 grid gap-3 sm:grid-cols-3">
-                <MetricCard label="筛选结果" value={integer(data?.summary.calls)} secondary="已结算调用" />
+            <section className="mb-6 grid gap-3 sm:grid-cols-2">
+                <MetricCard label="筛选结果" value={integer(data?.summary.calls)} secondary="已记录用量" />
                 <MetricCard label="总 Token" value={integer(data?.summary.totalTokens)} />
-                <MetricCard label="合计成本" value={usd(data?.summary.amountUsd)} />
             </section>
             <Table
                 rowKey="jobId"
@@ -134,7 +133,6 @@ export default function AdminUsagePage() {
                         render: (value) => <Tag color={value === "succeeded" ? "green" : value === "failed" ? "red" : undefined}>{statusLabels[value as JobStatus]}</Tag>,
                     },
                     { title: "Token", dataIndex: "totalTokens", width: 100, align: "right", render: integer },
-                    { title: "金额", dataIndex: "amountUsd", width: 100, align: "right", render: usd },
                     { title: "用量来源", dataIndex: "usageSource", width: 100, render: (value) => usageSourceLabels[value as string] || "—" },
                 ]}
             />

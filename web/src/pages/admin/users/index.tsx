@@ -5,11 +5,11 @@ import dayjs from "dayjs";
 import { UserPlus } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
-import { AdminPageHeader, integer, MetricCard, usd } from "@/pages/admin/components";
+import { AdminPageHeader, integer, MetricCard } from "@/pages/admin/components";
 import { createAdminUser, fetchAdminUser, fetchAdminUserProjects, fetchAdminUsers, updateAdminUserLimits, updateAdminUserStatus, type CloudUser, type UserLimits } from "@/services/api/auth";
 
 type CreateUserValues = { email: string; password: string };
-type UserLimitValues = { dailyCallLimit?: number; monthlyBudgetUsd?: string; concurrencyLimit?: number; videoConcurrencyLimit?: number };
+type UserLimitValues = { dailyCallLimit?: number; concurrencyLimit?: number; videoConcurrencyLimit?: number };
 
 export default function AdminUsersPage() {
     const { message } = App.useApp();
@@ -44,7 +44,6 @@ export default function AdminUsersPage() {
         mutationFn: (values: UserLimitValues) =>
             updateAdminUserLimits(selectedUser!.id, {
                 dailyCallLimit: values.dailyCallLimit ?? null,
-                monthlyBudgetUsd: values.monthlyBudgetUsd?.trim() || null,
                 concurrencyLimit: values.concurrencyLimit ?? null,
                 videoConcurrencyLimit: values.videoConcurrencyLimit ?? null,
             } satisfies UserLimits),
@@ -61,7 +60,6 @@ export default function AdminUsersPage() {
         if (!user) return;
         limitsForm.setFieldsValue({
             dailyCallLimit: user.dailyCallLimit ?? undefined,
-            monthlyBudgetUsd: user.monthlyBudgetUsd ? String(Number(user.monthlyBudgetUsd)) : undefined,
             concurrencyLimit: user.concurrencyLimit ?? undefined,
             videoConcurrencyLimit: user.videoConcurrencyLimit ?? undefined,
         });
@@ -81,7 +79,7 @@ export default function AdminUsersPage() {
         <div className="mx-auto max-w-7xl">
             <AdminPageHeader
                 title="用户管理"
-                description="查看注册用户、使用成本和画布项目，并控制账号状态。"
+                description="查看注册用户、调用用量和画布项目，并控制账号状态。"
                 extra={
                     <Button type="primary" icon={<UserPlus size={16} />} onClick={() => setCreateOpen(true)}>
                         添加用户
@@ -108,8 +106,6 @@ export default function AdminUsersPage() {
                     { title: "角色", dataIndex: "role", width: 110, render: (role) => <Tag color={role === "admin" ? "gold" : undefined}>{role === "admin" ? "管理员" : "普通用户"}</Tag> },
                     { title: "状态", dataIndex: "status", width: 100, render: (status) => <Tag color={status === "active" ? "green" : "red"}>{status === "active" ? "已启用" : "已停用"}</Tag> },
                     { title: "调用", dataIndex: "calls", width: 90, align: "right", render: integer },
-                    { title: "近 30 天", dataIndex: "amountUsdIn30Days", width: 110, align: "right", render: usd },
-                    { title: "累计金额", dataIndex: "amountUsd", width: 110, align: "right", render: usd },
                     {
                         title: "操作",
                         width: 180,
@@ -160,14 +156,11 @@ export default function AdminUsersPage() {
                 onCancel={() => setLimitsOpen(false)}
                 afterClose={() => limitsForm.resetFields()}
             >
-                <p className="mb-5 text-sm text-stone-500 dark:text-stone-400">留空表示调用和金额不限制，并发则继承系统默认值。金额达到上限后将禁止创建下一次任务。</p>
+                <p className="mb-5 text-sm text-stone-500 dark:text-stone-400">每日调用次数留空表示不限制，并发留空则继承系统默认值。</p>
                 <Form<UserLimitValues> form={limitsForm} layout="vertical" preserve={false} onFinish={(values) => saveLimits.mutate(values)}>
                     <div className="grid gap-x-4 sm:grid-cols-2">
                         <Form.Item name="dailyCallLimit" label="每日调用次数" rules={[{ type: "integer", min: 1, max: 1_000_000, message: "请输入 1–1,000,000 的整数" }]}>
                             <InputNumber className="w-full" min={1} max={1_000_000} precision={0} placeholder="不限" />
-                        </Form.Item>
-                        <Form.Item name="monthlyBudgetUsd" label="每月消费上限" rules={[{ pattern: /^(?=.*[1-9])(?:0\.\d{1,4}|[1-9]\d{0,8}(?:\.\d{1,4})?)$/, message: "请输入大于 0、最多 4 位小数的金额" }]}>
-                            <Input prefix="$" placeholder="不限" />
                         </Form.Item>
                         <Form.Item name="concurrencyLimit" label="同时运行任务数" rules={[{ type: "integer", min: 1, max: 1000, message: "请输入 1–1000 的整数" }]}>
                             <InputNumber className="w-full" min={1} max={1000} precision={0} placeholder="继承系统默认" />
@@ -180,10 +173,9 @@ export default function AdminUsersPage() {
             </Modal>
 
             <Drawer title={selectedUser?.email} width={680} open={Boolean(selectedUser)} onClose={() => setSelectedUser(null)}>
-                <section className="grid gap-3 sm:grid-cols-3">
+                <section className="grid gap-3 sm:grid-cols-2">
                     <MetricCard label="累计调用" value={integer(detail.data?.total.calls)} />
                     <MetricCard label="累计 Token" value={integer(detail.data?.total.totalTokens)} />
-                    <MetricCard label="累计金额" value={usd(detail.data?.total.amountUsd)} />
                 </section>
                 <div className="mb-3 mt-7 flex items-center justify-between">
                     <h3 className="text-sm font-medium">账户限额</h3>
@@ -191,9 +183,8 @@ export default function AdminUsersPage() {
                         编辑限额
                     </Button>
                 </div>
-                <section className="grid gap-3 sm:grid-cols-2">
+                <section className="grid gap-3 sm:grid-cols-3">
                     <MetricCard label="今日调用" value={`${integer(detail.data?.quotaUsage.dailyCalls)} / ${detail.data?.user.dailyCallLimit ? integer(detail.data.user.dailyCallLimit) : "不限"}`} secondary={`按 ${detail.data?.quotaUsage.timezone || "—"} 重置`} />
-                    <MetricCard label="本月消费" value={`${usd(detail.data?.quotaUsage.monthlyAmountUsd)} / ${detail.data?.user.monthlyBudgetUsd ? usd(detail.data.user.monthlyBudgetUsd) : "不限"}`} secondary="按已结算金额计算" />
                     <MetricCard label="任务并发" value={integer(detail.data?.quotaUsage.effectiveConcurrencyLimit)} secondary={detail.data?.user.concurrencyLimit ? "账户单独设置" : "继承系统默认"} />
                     <MetricCard label="视频并发" value={integer(detail.data?.quotaUsage.effectiveVideoConcurrencyLimit)} secondary={detail.data?.user.videoConcurrencyLimit ? "账户单独设置" : "继承系统默认"} />
                 </section>
@@ -211,7 +202,6 @@ export default function AdminUsersPage() {
                         { title: "项目", dataIndex: "name", ellipsis: true },
                         { title: "最近使用", dataIndex: "lastUsedAt", width: 140, render: (value) => (value ? dayjs(value).format("YYYY-MM-DD HH:mm") : "—") },
                         { title: "调用", dataIndex: "calls", width: 75, align: "right", render: integer },
-                        { title: "金额", dataIndex: "amountUsd", width: 90, align: "right", render: usd },
                         {
                             title: "操作",
                             width: 70,

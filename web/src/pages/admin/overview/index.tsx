@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Alert, DatePicker, Empty, Segmented, Skeleton, Table, Tag } from "antd";
+import { DatePicker, Empty, Segmented, Skeleton, Table, Tag } from "antd";
 import type { Dayjs } from "dayjs";
 
-import { AdminPageHeader, capabilityLabels, integer, MetricCard, statusLabels, usd } from "@/pages/admin/components";
+import { AdminPageHeader, capabilityLabels, integer, MetricCard, statusLabels } from "@/pages/admin/components";
 import { fetchAdminOverview, type UsageGroup } from "@/services/api/admin";
 
 type Range = "today" | "month" | "custom";
@@ -19,7 +19,7 @@ export default function AdminOverviewPage() {
         <div className="mx-auto max-w-7xl">
             <AdminPageHeader
                 title="数据总览"
-                description="查看用户规模、当前任务和 AI 使用成本。"
+                description="查看用户规模、当前任务和 AI 使用情况。"
                 extra={
                     <div className="flex flex-wrap gap-2">
                         <Segmented<Range>
@@ -40,12 +40,10 @@ export default function AdminOverviewPage() {
                 <Skeleton active />
             ) : (
                 <>
-                    {data?.modelsMissingPrice ? <Alert className="mb-4" type="warning" showIcon message={`${data.modelsMissingPrice} 个已启用模型缺少当前生效的价格规则，用户暂时无法调用。`} /> : null}
-                    <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                    <section className="grid gap-3 sm:grid-cols-3">
                         <MetricCard label="累计用户" value={integer(data?.users.total)} secondary={`近 30 天活跃 ${integer(data?.users.activeIn30Days)} 人`} />
                         <MetricCard label="正在执行" value={integer(data?.runningJobs)} secondary="排队中与生成中的任务" />
                         <MetricCard label="调用次数" value={integer(summary?.calls)} secondary={`Token ${integer(summary?.totalTokens)}`} />
-                        <MetricCard label="估算成本" value={usd(summary?.amountUsd)} secondary="按当前价格规则计算" />
                     </section>
 
                     <section className="mt-8 grid gap-6 xl:grid-cols-[1.3fr_1fr]">
@@ -61,7 +59,6 @@ export default function AdminOverviewPage() {
                                     { title: "模型", dataIndex: "modelName" },
                                     { title: "类型", dataIndex: "capability", width: 90, render: (value) => (value ? capabilityLabels[value as keyof typeof capabilityLabels] : "—") },
                                     { title: "调用", dataIndex: "calls", width: 90, render: integer },
-                                    { title: "金额", dataIndex: "amountUsd", width: 110, align: "right", render: usd },
                                 ]}
                             />
                         </div>
@@ -79,7 +76,6 @@ export default function AdminOverviewPage() {
                                         render: (value) => <Tag color={value === "succeeded" ? "green" : value === "failed" ? "red" : undefined}>{statusLabels[value as keyof typeof statusLabels] || value}</Tag>,
                                     },
                                     { title: "调用", dataIndex: "calls", width: 90, render: integer },
-                                    { title: "金额", dataIndex: "amountUsd", width: 110, align: "right", render: usd },
                                 ]}
                             />
                         </div>

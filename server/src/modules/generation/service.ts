@@ -9,8 +9,7 @@ import { toJson } from "../audit.js";
 import { assertUserQuota } from "../quota/service.js";
 import { deleteObject, getObjectBuffer, presignDownload } from "../storage/s3.js";
 import { fileKind, resolveJobFiles, saveGeneratedFile } from "../storage/uploads.js";
-import { hasPriceForRequest, resolvePrice } from "../usage/pricing.js";
-import { settleSucceededJob, settleUnbilledJob, type SettleInput } from "../usage/service.js";
+import { recordSucceededUsage, recordTerminatedUsage, type UsageInput } from "../usage/service.js";
 import { editImage, generateAudio, generateImage, generateText, generateVideo, type VideoReference } from "./providers/openai.js";
 
 /** 运行中任务的取消句柄；进程重启后由启动清理逻辑兜底。 */
@@ -113,7 +112,7 @@ export async function publicJob(job: GenerationJob) {
     };
 }
 
-/** 创建生成任务；同一用户的相同 requestId 直接返回已存在任务，不重复创建也不重复计费。 */
+/** 创建生成任务；同一用户的相同 requestId 直接返回已存在任务，不重复创建。 */
 export async function createJob(user: User, input: CreateJobInput) {
     const existingJob = await prisma.generationJob.findUnique({ where: { userId_requestId: { userId: user.id, requestId: input.requestId } } });
     if (existingJob) return existingJob;
@@ -122,8 +121,6 @@ export async function createJob(user: User, input: CreateJobInput) {
     if (model.provider.apiFormat === "gemini") throw new ApiError("MODEL_UNAVAILABLE", "Gemini 原生协议尚未接入后台网关");
     if (model.capability !== input.capability) throw new ApiError("VALIDATION_FAILED", "模型能力与请求不一致");
     assertModelParams(model, input.params ?? {});
-    const priceRule = await resolvePrice(model.id, new Date());
-    if (!priceRule || !hasPriceForRequest(priceRule, input.capability, input.params ?? {})) throw new ApiError("MODEL_PRICE_MISSING", "模型缺少当前请求可用的价格规则");
     if (input.projectId) {
         const project = await prisma.project.findUnique({ where: { id: input.projectId } });
         if (!project || project.userId !== user.id) throw new ApiError("NOT_FOUND", "项目不存在");
@@ -161,7 +158,7 @@ export async function createJob(user: User, input: CreateJobInput) {
                 modelId: model.id,
                 capability: input.capability,
                 promptText: input.prompt,
-                params: toJson({ ...(input.params ?? {}), fileIds: files.map((file) => file.id), _priceRuleId: priceRule.id }),
+                params: toJson({ ...(input.params ?? {}), fileIds: files.map((file) => file.id) }),
             },
         });
         return { job: createdJob, created: true };
@@ -238,7 +235,7 @@ async function runVideo(userId: string, jobId: string, provider: Parameters<type
     });
 }
 
-/** 音频格式解析失败不影响生成结果，只是不参与按分钟计价；字符计价仍可正常使用。 */
+/** 音频格式解析失败不影响生成结果，只是不记录音频时长。 */
 async function readAudioDuration(data: Buffer, mimeType: string) {
     try {
         const metadata = await parseBuffer(data, { mimeType });
@@ -288,15 +285,15 @@ async function runImage(userId: string, jobId: string, provider: Parameters<type
     return { files, providerRequestId: result.providerRequestId, usage: result.usage };
 }
 
-/** 任务被取消或结算失败时，删除已经写入但不会再被引用的生成结果。 */
+/** 任务被取消或用量记录失败时，删除已经写入但不会再被引用的生成结果。 */
 async function discardResult(result: JobResult) {
     await Promise.all((result.files || []).map((file) => deleteObject(file.storageKey).catch(() => undefined)));
 }
 
-/** 成功状态、结果和费用必须同时提交；任一环节失败都不能留下“成功但无费用”的任务。 */
-async function completeSucceededJob(jobId: string, input: SettleInput, providerRequestId: string | undefined, result: JobResult) {
+/** 成功状态、结果和用量必须同时提交。 */
+async function completeSucceededJob(jobId: string, input: UsageInput, providerRequestId: string | undefined, result: JobResult) {
     try {
-        const outcome = await settleSucceededJob(jobId, input, { providerRequestId, result });
+        const outcome = await recordSucceededUsage(jobId, input, { providerRequestId, result });
         if (outcome !== "succeeded") await discardResult(result);
     } catch (error) {
         await discardResult(result);
@@ -313,8 +310,7 @@ async function finishFailed(jobId: string, error: unknown) {
     const updated = await prisma.generationJob.updateMany({ where: { id: jobId, status: "running" }, data: { status: "failed", finishedAt: new Date(), errorCode: code, errorDetail: detail } });
     if (!updated.count) return;
     logger.warn("生成任务失败", { jobId, code });
-    // 失败任务同样留下金额为 0 的记录，管理员按状态汇总时不会漏掉这次调用。
-    await settleUnbilledJob(jobId, `任务失败：${code}`);
+    await recordTerminatedUsage(jobId);
 }
 
 /** 取消任务并释放并发名额；已结束的任务不能取消。 */
@@ -324,7 +320,7 @@ export async function cancelJob(userId: string, jobId: string) {
     const changed = await prisma.generationJob.updateMany({ where: { id: jobId, userId, status: { in: ["queued", "running"] } }, data: { status: "cancelled", finishedAt: new Date() } });
     if (!changed.count) throw new ApiError("JOB_NOT_CANCELABLE", "任务已结束");
     runningJobs.get(jobId)?.abort();
-    await settleUnbilledJob(jobId, "用户取消任务");
+    await recordTerminatedUsage(jobId);
     return prisma.generationJob.findUniqueOrThrow({ where: { id: jobId } });
 }
 
@@ -336,6 +332,6 @@ export async function releaseStaleJobs() {
         where: { id: { in: stale.map((job) => job.id) } },
         data: { status: "failed", errorCode: "INTERNAL_ERROR", errorDetail: "服务重启导致任务中断", finishedAt: new Date() },
     });
-    for (const job of stale) await settleUnbilledJob(job.id, "服务重启导致任务中断");
+    for (const job of stale) await recordTerminatedUsage(job.id);
     logger.warn("已清理服务重启前的未完成任务", { count: stale.length });
 }

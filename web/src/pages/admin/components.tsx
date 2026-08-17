@@ -22,10 +22,6 @@ export function MetricCard({ label, value, secondary }: { label: string; value: 
     );
 }
 
-export function usd(value: string | null | undefined) {
-    return `$${Number(value || 0).toFixed(4)}`;
-}
-
 export function integer(value: number | null | undefined) {
     return new Intl.NumberFormat("zh-CN").format(value || 0);
 }

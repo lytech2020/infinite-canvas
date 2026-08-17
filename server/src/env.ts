@@ -15,12 +15,6 @@ function positiveInteger(name: string, fallback: number) {
     return value;
 }
 
-function positiveDecimal(name: string, fallback: string) {
-    const value = process.env[name] || fallback;
-    if (!/^\d+(?:\.\d{1,8})?$/.test(value) || Number(value) <= 0) throw new Error(`${name} 必须是大于 0、最多 8 位小数的金额`);
-    return value;
-}
-
 export const env = {
     port: Number(process.env.PORT) || 8787,
     nodeEnv: process.env.NODE_ENV || "development",
@@ -33,7 +27,6 @@ export const env = {
     sessionCookieSecure: process.env.SESSION_COOKIE_SECURE ? process.env.SESSION_COOKIE_SECURE === "true" : isProduction,
     registrationOpen: process.env.REGISTRATION_OPEN === "true",
     defaultDailyCallLimit: positiveInteger("DEFAULT_DAILY_CALL_LIMIT", 20),
-    defaultMonthlyBudgetUsd: positiveDecimal("DEFAULT_MONTHLY_BUDGET_USD", "10"),
     userMaxConcurrentJobs: Number(process.env.USER_MAX_CONCURRENT_JOBS) || 2,
     userMaxConcurrentVideoJobs: Number(process.env.USER_MAX_CONCURRENT_VIDEO_JOBS) || 1,
     quotaTimezone: process.env.QUOTA_TIMEZONE || "Asia/Tokyo",

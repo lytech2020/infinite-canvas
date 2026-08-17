@@ -13,8 +13,8 @@
 | 运行时 | Node.js 20 + TypeScript | 与 `canvas-agent` 一致，团队已有写法可沿用 |
 | Web 框架 | Express 5 | `canvas-agent` 已在用；无需再引入新框架 |
 | 参数校验 | zod | `canvas-agent` 已在用，同时用于生成错误码 `VALIDATION_FAILED` |
-| 数据库 | PostgreSQL 16 | 需要高精度 `NUMERIC` 金额、JSONB 价格快照和全文/关键词检索 |
-| ORM 与迁移 | Prisma | 自带迁移、`Decimal` 类型和类型安全查询，部署只需 `prisma migrate deploy` |
+| 数据库 | PostgreSQL 16 | 需要 JSONB 用量数据和全文/关键词检索 |
+| ORM 与迁移 | Prisma | 自带迁移和类型安全查询，部署只需 `prisma migrate deploy` |
 | 身份认证 | 邮箱 + 密码，服务端会话 Cookie | 不依赖第三方身份服务和 SMTP，见第 4 节 |
 | 密码哈希 | `argon2` | 成熟库，不自行实现加密 |
 | 密钥加密 | Node 内置 `crypto` AES-256-GCM | 渠道 API Key 加密落库，主密钥来自环境变量 |
@@ -53,15 +53,14 @@ server/
         admin/*.ts
     modules/
       auth/               # 注册、登录、会话
-      catalog/            # 渠道、模型、价格
+      catalog/            # 渠道、模型
       projects/
       generation/         # 任务编排、并发保护、供应商适配
       providers/          # openai / azure-openai / ark 适配器；gemini 原生协议待后续接入
-      usage/              # Token 归一化、估算、价格快照、金额结算
+      usage/              # Token 归一化与估算
       storage/            # S3 预签名与清理
     lib/
       crypto.ts           # AES-256-GCM 加解密
-      money.ts            # Decimal 计算封装
 ```
 
 前端仍在 `web/`，不改变现有目录约定。前端调用后台的代码统一放在 `web/src/services/api/`（沿用 AGENTS.md 前端规范）。
@@ -83,23 +82,18 @@ server/
 
 ## 3. 数据库设计
 
-金额统一使用 `NUMERIC(24, 10)`（Prisma `Decimal`），币种固定 `USD`，禁止使用浮点类型累计。
-
 | 表 | 关键字段 | 说明 |
 | --- | --- | --- |
-| `users` | `id`, `email`(唯一), `password_hash`, `role`、`status`、`daily_call_limit`、`monthly_budget_usd`、`concurrency_limit`、`video_concurrency_limit`、`created_at`、`last_active_at` | 空调用/金额限额表示不限，空并发限额表示继承系统默认值 |
+| `users` | `id`, `email`(唯一), `password_hash`, `role`、`status`、`daily_call_limit`、`concurrency_limit`、`video_concurrency_limit`、`created_at`、`last_active_at` | 空调用限额表示不限，空并发限额表示继承系统默认值 |
 | `sessions` | `id`, `user_id`, `token_hash`(唯一), `expires_at`, `created_at`, `last_used_at`, `revoked_at` | 会话可撤销，停用用户即时失效 |
 | `projects` | `id`(前端生成的画布 ID), `user_id`, `name`, `created_at`, `updated_at`, `deleted_at` | 软删除，历史用量不受影响 |
 | `providers` | `id`, `name`, `api_format`, `base_url`, `api_key_cipher`, `api_version`, `extra`(JSONB), `enabled` | `api_key_cipher` 为 AES-256-GCM 密文，任何接口都不返回明文 |
 | `models` | `id`, `provider_id`, `display_name`, `remote_name`(即 Deployment Name), `capability`, `param_schema`(JSONB), `file_limits`(JSONB), `max_concurrency`, `enabled`, `sort_order` | 面向用户的接口只返回展示字段 |
-| `model_prices` | `id`, `model_id`, `currency`(`USD`), `pricing_type`, `unit_prices`(JSONB), `effective_from`, `effective_to`, `created_by`, `created_at` | 价格按生效时间取用，历史记录不可变 |
 | `generation_jobs` | `id`, `request_id`(与 `user_id` 唯一), `provider_request_id`, `user_id`, `project_id`, `project_name_snapshot`, `node_id`, `source`, `model_id`, `capability`, `prompt_text`, `params`(JSONB), `status`, `error_code`, `error_detail`, `created_at`, `started_at`, `finished_at` | `prompt_text` 长期保存，原文不翻译不改写 |
-| `ai_usage_records` | `job_id`(唯一), `user_id`, `project_id`, `model_id`, `price_snapshot`(JSONB), `input_tokens`, `cached_tokens`, `output_tokens`, `reasoning_tokens`, `total_tokens`, `media_units`(JSONB), `usage_source`(`provider`/`estimated`), `usage_estimation_method`, `tokenizer_name`, `tokenizer_version`, `amount_usd`, `calculation_detail`(JSONB), `created_at` | 一次调用一条结算记录，靠 `job_id` 唯一保证不重复计费 |
+| `ai_usage_records` | `job_id`(唯一), `user_id`, `project_id`, `model_id`, `input_tokens`, `cached_tokens`, `output_tokens`, `reasoning_tokens`, `total_tokens`, `media_units`(JSONB), `usage_source`(`provider`/`estimated`/`none`), `usage_estimation_method`, `tokenizer_name`, `tokenizer_version`, `created_at` | 一次调用一条用量记录，靠 `job_id` 唯一保证不重复记录 |
 | `uploads` | `id`, `user_id`, `storage_key`, `mime_type`, `size`, `status`(`pending`/`ready`), `expires_at`, `created_at` | 只存元数据，文件本体在对象存储 |
-| `admin_audit_logs` | `id`, `admin_id`, `action`, `target_type`, `target_id`, `detail`(JSONB), `created_at` | 记录提示词查看、价格修改、用户停用等 |
+| `admin_audit_logs` | `id`, `admin_id`, `action`, `target_type`, `target_id`, `detail`(JSONB), `created_at` | 记录提示词查看、用户停用等 |
 | `app_settings` | `key`, `value`(JSONB), `updated_at` | 例如是否开放自助注册 |
-
-汇总口径：用户与项目累计金额一律由 `ai_usage_records` 聚合得出，不在 `users` / `projects` 上维护无法追溯的手工数字。后续需要提速时再增加可重算的汇总表。
 
 关键索引：`ai_usage_records(user_id, created_at)`、`ai_usage_records(project_id, created_at)`、`generation_jobs(user_id, status)`、`generation_jobs(model_id, created_at)`、`generation_jobs` 的 `prompt_text` 关键词检索索引。
 
@@ -211,7 +205,7 @@ server/
 ```
 
 - `source` 取值：`canvas`、`image_workbench`、`video_workbench`、`other`。
-- `requestId` 由前端生成并在同一用户下唯一；重复提交返回同一任务，不重复创建任务、不重复计费。
+- `requestId` 由前端生成并在同一用户下唯一；重复提交返回同一任务，不重复创建任务。
 - `capability` 取值：`text`、`image`、`video`、`audio`。
 - 画布调用必须携带 `projectId` 与 `nodeId`；工作台调用允许 `projectId` 为空。
 
@@ -238,19 +232,18 @@ server/
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | `/admin/overview` | 用量与金额概览 |
+| GET | `/admin/overview` | 用量概览 |
 | GET | `/admin/users` | 用户列表，支持邮箱搜索 |
 | POST | `/admin/users` | 管理员添加普通启用用户 |
 | PATCH | `/admin/users/{id}/status` | 启用或停用 |
-| PATCH | `/admin/users/{id}/limits` | 设置每日调用、每月金额及普通/视频并发限额 |
-| GET | `/admin/users/{id}/projects` | 用户项目列表与累计 Token、金额 |
+| PATCH | `/admin/users/{id}/limits` | 设置每日调用及普通/视频并发限额 |
+| GET | `/admin/users/{id}/projects` | 用户项目列表与累计 Token |
 | GET | `/admin/usage` | 调用明细，支持用户、项目、模型、能力、状态、时间和 `usageSource` 筛选 |
 | GET | `/admin/usage/export.csv` | 导出不含提示词正文的用量 CSV |
 | GET | `/admin/prompts` | 提示词查看与关键词搜索，写入审计日志 |
 | GET | `/admin/audit-logs` | 管理员操作与提示词查看审计 |
 | GET/POST/PATCH/DELETE | `/admin/providers` | 渠道与密钥管理，响应只返回密钥掩码 |
 | GET/POST/PATCH/DELETE | `/admin/models` | 模型、能力、参数范围、文件限制和并发 |
-| GET/POST | `/admin/models/{id}/prices` | 价格规则与生效时间 |
 | GET/PATCH | `/admin/settings` | 是否开放自助注册等 |
 
 ## 7. 任务状态与错误代码
@@ -261,8 +254,8 @@ server/
 | --- | --- |
 | `queued` | 已创建，等待执行；计入并发 |
 | `running` | 正在调用供应商 |
-| `succeeded` | 成功并完成结算 |
-| `failed` | 失败，可能已结算也可能无费用 |
+| `succeeded` | 成功并记录用量 |
+| `failed` | 失败 |
 | `cancelled` | 用户取消，释放并发名额 |
 
 第一阶段任务在 API 进程内异步执行，状态写入数据库，前端通过 `GET /api/v1/generations/{id}` 轮询，不引入队列中间件和 WebSocket。
@@ -284,7 +277,6 @@ server/
 | `JOB_NOT_CANCELABLE` | 409 | 任务已结束，无法取消 |
 | `CONCURRENCY_LIMIT` | 429 | 用户同时运行任务过多 |
 | `DAILY_CALL_LIMIT` | 429 | 账户当日调用次数已用完 |
-| `MONTHLY_BUDGET_LIMIT` | 429 | 账户本月已结算金额达到上限 |
 | `RATE_LIMITED` | 429 | 请求过于频繁 |
 | `FILE_TOO_LARGE` | 413 | 文件超过大小限制，`details` 返回允许值 |
 | `FILE_TYPE_NOT_ALLOWED` | 415 | 文件类型不支持 |
@@ -314,7 +306,6 @@ server/
 | `ADMIN_PASSWORD` | 是 | - | 8–16 位初始管理员密码，seed 后应立即修改 |
 | `REGISTRATION_OPEN` | 否 | `false` | 自助注册初始值，之后以数据库设置为准 |
 | `DEFAULT_DAILY_CALL_LIMIT` | 否 | `20` | 新普通用户的默认每日调用次数 |
-| `DEFAULT_MONTHLY_BUDGET_USD` | 否 | `10` | 新普通用户的默认每月美元额度 |
 | `S3_ENDPOINT` | 是 | `http://minio:9000` | 后台访问对象存储的内部地址 |
 | `S3_PUBLIC_ENDPOINT` | 否 | `http://localhost:9000` | 签发给浏览器的对象存储地址；未设置时沿用 `S3_ENDPOINT` |
 | `S3_REGION` | 是 | `us-east-1` | 区域 |
@@ -327,7 +318,7 @@ server/
 | `TEMP_FILE_TTL_HOURS` | 否 | `24` | 临时文件保留时间 |
 | `USER_MAX_CONCURRENT_JOBS` | 否 | `2` | 用户并发上限默认值 |
 | `USER_MAX_CONCURRENT_VIDEO_JOBS` | 否 | `1` | 用户视频并发上限 |
-| `QUOTA_TIMEZONE` | 否 | `Asia/Tokyo` | 每日和每月账户限额的重置时区 |
+| `QUOTA_TIMEZONE` | 否 | `Asia/Tokyo` | 每日账户限额的重置时区 |
 | `PROVIDER_TIMEOUT_MS` | 否 | `120000` | 供应商请求超时 |
 | `PROVIDER_VIDEO_TIMEOUT_MS` | 否 | `900000` | 视频供应商任务超时 |
 | `LOG_LEVEL` | 否 | `info` | 日志级别 |
@@ -371,7 +362,7 @@ docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
 
 ## 10. 分阶段落地顺序
 
-与用户确认的阶段一致，本方案对应的编码顺序为：用户与管理员 → 渠道模型价格 → 画布项目登记 → 生成网关（文本、图片、音频、视频） → Token 与成本 → 文件与对象存储 → 前端完整接入 → 管理后台 → 清理与部署准备。
+与用户确认的阶段一致，本方案对应的编码顺序为：用户与管理员 → 渠道模型 → 画布项目登记 → 生成网关（文本、图片、音频、视频） → Token 与媒体用量 → 文件与对象存储 → 前端完整接入 → 管理后台 → 清理与部署准备。
 
 迁移期间曾保留浏览器直连供应商源码；四类后台能力接通后，普通用户入口与运行时回退均已关闭，Azure OpenAI 改由后台渠道配置调用，中日多语言保持不变。
 
@@ -387,13 +378,13 @@ docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
 ## 12. 实际落地进度
 
 - 第二阶段：`server/` 目录结构、统一响应与错误代码、会话 Cookie 认证、`users` / `sessions` / `app_settings` 三表、`/api/v1/auth/*` 与 `/api/v1/admin/users` 接口。
-- 第三阶段：`providers` / `models` / `model_prices` / `admin_audit_logs` 四表，渠道密钥 AES-256-GCM 加密，模型能力、参数范围、文件限制和并发配置，价格规则与生效时间，`/api/v1/admin/providers`、`/api/v1/admin/models`、`/api/v1/models` 接口。
+- 第三阶段：`providers` / `models` / `admin_audit_logs` 三表，渠道密钥 AES-256-GCM 加密，模型能力、参数范围、文件限制和并发配置，以及 `/api/v1/admin/providers`、`/api/v1/admin/models`、`/api/v1/models` 接口。
 
-- 第六阶段：`ai_usage_records` 表与 `UsageSource` 枚举，Token 归一化与 tokenizer 估算，价格快照与 `Decimal(18,8)` 金额结算，`/api/v1/admin/overview`、`/api/v1/admin/usage`（含 `export.csv`、`summary`）、`/api/v1/admin/users/{id}`、`/api/v1/admin/users/{id}/projects`、`/api/v1/admin/prompts` 接口。价格规则的 `unit_prices` 在原有字段基础上增加 `perImageByVariant`（按「尺寸」或「尺寸:质量」区分）和 `perVideoSecondByResolution`。
-- 第九阶段：前端新增统一管理后台布局及数据总览、用量明细、用户项目、提示词分析、渠道、模型和价格管理页面，直接接入第六阶段与目录管理接口。
-- 第十阶段：模型参数、单次输出数量和模型级文件限制在任务创建前强制校验；音频记录实际秒数；OpenAI 与 Azure OpenAI 视频参考图统一按单张目标尺寸提交；任务幂等、用户与模型并发通过事务锁保护，成功状态、结果和用量费用在同一事务提交；修改密码、凭据频率限制、自助注册后台开关、临时上传定时清理以及生产 Compose 已补齐。
+- 第六阶段：`ai_usage_records` 表与 `UsageSource` 枚举，Token 归一化与 tokenizer 估算，以及 `/api/v1/admin/overview`、`/api/v1/admin/usage`（含 `export.csv`、`summary`）、`/api/v1/admin/users/{id}`、`/api/v1/admin/users/{id}/projects`、`/api/v1/admin/prompts` 接口。
+- 第九阶段：前端新增统一管理后台布局及数据总览、用量明细、用户项目、提示词分析、渠道和模型管理页面，直接接入第六阶段与目录管理接口。
+- 第十阶段：模型参数、单次输出数量和模型级文件限制在任务创建前强制校验；音频记录实际秒数；OpenAI 与 Azure OpenAI 视频参考图统一按单张目标尺寸提交；任务幂等、用户与模型并发通过事务锁保护，成功状态、结果和用量在同一事务提交；修改密码、凭据频率限制、自助注册后台开关、临时上传定时清理以及生产 Compose 已补齐。
 
-第四至第十阶段的项目登记、四类生成网关、Token 与成本、对象存储、前端完整接入和管理后台均已落地并完成一轮静态 review，下一步以本地人工联调为主。
+第四至第十阶段的项目登记、四类生成网关、Token 与媒体用量、对象存储、前端完整接入和管理后台均已落地并完成一轮静态 review，下一步以本地人工联调为主。
 
 当前 `server/.env.example` 已包含数据库、会话、密钥加密、上传限制、任务轮询和 S3 兼容对象存储所需变量；生产对象存储供应商仍按第 11 节待确认。
 

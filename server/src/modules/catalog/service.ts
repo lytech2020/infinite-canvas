@@ -1,4 +1,4 @@
-import type { Model, ModelPrice, Provider } from "@prisma/client";
+import type { Model, Provider } from "@prisma/client";
 
 import { prisma } from "../../db.js";
 import { decryptSecret, maskSecret } from "../../lib/crypto.js";
@@ -36,7 +36,7 @@ export function adminModel(model: Model) {
     };
 }
 
-/** 普通用户可见的模型信息：不含渠道、实际调用名称、并发上限和价格。 */
+/** 普通用户可见的模型信息：不含渠道、实际调用名称和并发上限。 */
 export function publicModel(model: Model) {
     return {
         id: model.id,
@@ -62,11 +62,4 @@ export async function listPublicModels() {
 /** 同一能力下只允许一个默认模型。 */
 export async function clearOtherDefaults(capability: Model["capability"], keepModelId?: string) {
     await prisma.model.updateMany({ where: { capability, isDefault: true, ...(keepModelId ? { id: { not: keepModelId } } : {}) }, data: { isDefault: false } });
-}
-
-/** 取指定时间生效的价格规则，用于任务结算时复制价格快照。 */
-export function findEffectivePrice(prices: ModelPrice[], at: Date) {
-    return prices
-        .filter((price) => price.effectiveFrom <= at && (!price.effectiveTo || price.effectiveTo > at))
-        .sort((a, b) => b.effectiveFrom.getTime() - a.effectiveFrom.getTime())[0];
 }

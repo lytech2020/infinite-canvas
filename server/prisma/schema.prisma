@@ -1,4 +1,4 @@
-// 云端版后台数据模型。按阶段递增，本文件当前覆盖用户会话、系统设置、渠道模型和价格规则。
+// 云端版后台数据模型。按阶段递增，本文件当前覆盖用户会话、系统设置、渠道模型和用量记录。
 
 generator client {
     provider = "prisma-client-js"
@@ -26,7 +26,6 @@ model User {
     role                  UserRole   @default(user)
     status                UserStatus @default(active)
     dailyCallLimit        Int?       @map("daily_call_limit")
-    monthlyBudgetUsd      Decimal?   @map("monthly_budget_usd") @db.Decimal(18, 8)
     concurrencyLimit      Int?       @map("concurrency_limit")
     videoConcurrencyLimit Int?       @map("video_concurrency_limit")
     createdAt             DateTime   @default(now()) @map("created_at")
@@ -84,14 +83,6 @@ enum ModelCapability {
     audio
 }
 
-enum PricingType {
-    token
-    image
-    video
-    audio
-    fixed
-}
-
 /** AI 渠道。API Key 以 AES-256-GCM 密文保存，任何接口都不返回明文。 */
 model Provider {
     id           String    @id @default(cuid())
@@ -128,31 +119,11 @@ model Model {
     createdAt      DateTime        @default(now()) @map("created_at")
     updatedAt      DateTime        @updatedAt @map("updated_at")
     provider       Provider        @relation(fields: [providerId], references: [id], onDelete: Restrict)
-    prices         ModelPrice[]
     jobs           GenerationJob[]
 
     @@index([providerId])
     @@index([capability, enabled])
     @@map("models")
-}
-
-/** 模型价格规则。历史结算按生效时间取快照，改价不影响已产生的费用。 */
-model ModelPrice {
-    id            String      @id @default(cuid())
-    modelId       String      @map("model_id")
-    // 第一阶段固定 USD
-    currency      String      @default("USD")
-    pricingType   PricingType @map("pricing_type")
-    // 各类计费单价，值统一用字符串保存以保持精度，结算时按高精度小数计算
-    unitPrices    Json        @map("unit_prices")
-    effectiveFrom DateTime    @map("effective_from")
-    effectiveTo   DateTime?   @map("effective_to")
-    createdById   String?     @map("created_by_id")
-    createdAt     DateTime    @default(now()) @map("created_at")
-    model         Model       @relation(fields: [modelId], references: [id], onDelete: Cascade)
-
-    @@index([modelId, effectiveFrom])
-    @@map("model_prices")
 }
 
 enum JobStatus {
@@ -211,14 +182,11 @@ enum UsageSource {
     provider
     /** 供应商未返回用量，由后台按 tokenizer 估算 */
     estimated
-    /** 没有 Token 用量：失败或取消未计费，或按图片、视频、音频等媒体单位计费 */
+    /** 没有 Token 用量：失败、取消，或仅记录图片、视频、音频等媒体单位 */
     none
 }
 
-/**
- * 一次调用一条结算记录，`job_id` 唯一保证同一任务不会重复计费。
- * 用户和项目的累计金额一律由本表聚合得出，不在用户表里维护无法追溯的手工数字。
- */
+/** 一次调用一条用量记录，`job_id` 唯一保证同一任务不会重复记录。 */
 model AiUsageRecord {
     id         String          @id @default(cuid())
     jobId      String          @unique @map("job_id")
@@ -228,23 +196,17 @@ model AiUsageRecord {
     // 冗余能力与任务状态，便于按能力和成功/失败直接聚合，无需回表关联任务
     capability ModelCapability
     status     JobStatus
-    // 结算时复制的价格规则快照，之后改价不影响历史金额
-    priceSnapshot    Json?       @map("price_snapshot")
     inputTokens      Int         @default(0) @map("input_tokens")
     cachedTokens     Int         @default(0) @map("cached_tokens")
     outputTokens     Int         @default(0) @map("output_tokens")
     reasoningTokens  Int         @default(0) @map("reasoning_tokens")
     totalTokens      Int         @default(0) @map("total_tokens")
-    // 非 Token 计费单位，形如 { images: 1, size: "1024x1024", videoSeconds: 5 }
+    // 非 Token 用量单位，形如 { images: 1, size: "1024x1024", videoSeconds: 5 }
     mediaUnits       Json?       @map("media_units")
     usageSource      UsageSource @map("usage_source")
     usageEstimationMethod String? @map("usage_estimation_method")
     tokenizerName    String?     @map("tokenizer_name")
     tokenizerVersion String?     @map("tokenizer_version")
-    // 金额一律高精度小数，不使用浮点数累计
-    amountUsd        Decimal     @default(0) @map("amount_usd") @db.Decimal(18, 8)
-    // 金额计算过程，管理员可据此追溯每一项的单价、数量和小计
-    calculationDetail Json?      @map("calculation_detail")
     createdAt        DateTime    @default(now()) @map("created_at")
     job              GenerationJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
 
@@ -277,7 +239,7 @@ model Upload {
     @@map("uploads")
 }
 
-/** 管理员操作审计，例如修改价格、停用账号、查看提示词。 */
+/** 管理员操作审计，例如停用账号、查看提示词。 */
 model AdminAuditLog {
     id         String   @id @default(cuid())
     adminId    String   @map("admin_id")
