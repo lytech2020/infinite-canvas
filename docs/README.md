@@ -1,52 +1,27 @@
-# docs
+# 无限画布文档
 
-This is a Next.js application generated with
-[Create Fumadocs](https://github.com/fuma-nama/fumadocs).
+`docs/` 是本项目唯一的文档目录，同时包含 Fumadocs 文档站和项目文档内容。
 
-It runs as a server-backed Next.js docs site and is configured for standalone
-output. Route handlers such as search and LLM text remain available at runtime.
+## 内容分类
 
-Run development server:
+- `content/docs/v1/`：当前已有的 V1 文档。
+- `content/docs/v2/`：后续新增的 V2 需求、方案和验收清单。
+- `content/docs/v1/overview/`：项目介绍、功能说明和面向用户的部署指南。
+- `content/docs/v1/canvas/`：画布操作手册。
+- `content/docs/v1/development/`：本地开发、云端部署、数据结构和集成测试说明。
+- `content/docs/v1/progress/`：TODO、待测试事项、实施方案和任务清单。
+- `content/docs/v1/business/`：协议与商务合作。
+- `content/docs/v1/support/`：安全与赞助支持。
+- `index.md`：供 AI 和维护者快速检索的完整文档索引。
+
+项目不再使用根目录下的 `doc/`。V1 内容保持在 `v1/`，后续需求写入 `v2/`，并同步更新对应的 `meta.json` 和 `index.md`。
+
+## 本地运行
 
 ```bash
+cd docs
+bun install
 bun run dev
 ```
 
-Build and run local production server:
-
-```bash
-bun run build
-bun run start
-```
-
-Run the published image with Docker Compose:
-
-```bash
-docker compose up -d
-```
-
-Or build locally with Docker Compose:
-
-```bash
-docker compose -f docker-compose.local.yml up -d --build
-```
-
-## Explore
-
-In the project, you can see:
-
-- `lib/source.ts`: Code for content source adapter, `loader()` provides the interface to access your content.
-- `lib/layout.shared.tsx`: Shared options for layouts, optional but preferred to keep.
-
-| Route                     | Description                                            |
-| ------------------------- | ------------------------------------------------------ |
-| `app/(home)`              | The route group for your landing page and other pages. |
-| `app/docs`                | The documentation layout and pages.                    |
-| `app/api/search/route.ts` | The Route Handler for search.                          |
-
-### Fumadocs MDX
-
-A `source.config.ts` config file has been included, you can customise different
-options like frontmatter schema.
-
-Read the [Introduction](https://fumadocs.dev/docs/mdx) for further details.
+生产构建和 Docker 运行方式见[云端部署与初始化](content/docs/v1/development/cloud-deploy.mdx)。

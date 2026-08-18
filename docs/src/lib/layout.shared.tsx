@@ -18,7 +18,7 @@ export function baseOptions(): BaseLayoutProps {
     links: [
       {
         text: '文档导航',
-        url: '/docs/overview/quick-start',
+        url: '/docs/v1/overview/quick-start',
         on: 'nav',
       },
       {

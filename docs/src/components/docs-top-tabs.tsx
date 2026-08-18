@@ -5,12 +5,13 @@ import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/cn';
 
 const tabs = [
-  { title: '项目介绍', href: '/docs/overview/quick-start', prefix: '/docs/overview' },
-  { title: '操作手册', href: '/docs/canvas/canvas-node-manual', prefix: '/docs/canvas' },
-  { title: '开发文档', href: '/docs/development/local-development', prefix: '/docs/development' },
-  { title: '项目进度', href: '/docs/progress/changelog', prefix: '/docs/progress' },
-  { title: '商务合作', href: '/docs/business/business', prefix: '/docs/business' },
-  { title: '赞助支持', href: '/docs/support/sponsor', prefix: '/docs/support' },
+  { title: 'V1 项目介绍', href: '/docs/v1/overview/quick-start', prefix: '/docs/v1/overview' },
+  { title: '操作手册', href: '/docs/v1/canvas/canvas-node-manual', prefix: '/docs/v1/canvas' },
+  { title: '开发文档', href: '/docs/v1/development/local-development', prefix: '/docs/v1/development' },
+  { title: '项目进度', href: '/docs/v1/progress/changelog', prefix: '/docs/v1/progress' },
+  { title: '商务合作', href: '/docs/v1/business/business', prefix: '/docs/v1/business' },
+  { title: '赞助支持', href: '/docs/v1/support/sponsor', prefix: '/docs/v1/support' },
+  { title: 'V2 后续需求', href: '/docs/v2/requirements', prefix: '/docs/v2' },
 ];
 
 export function DocsTopTabs() {

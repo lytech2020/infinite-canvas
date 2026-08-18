@@ -1,12 +1,9 @@
 {
-  "title": "文档",
+  "title": "文档版本",
   "root": true,
+  "defaultOpen": true,
   "pages": [
-    "overview",
-    "canvas",
-    "development",
-    "progress",
-    "business",
-    "support"
+    "v1",
+    "v2"
   ]
 }

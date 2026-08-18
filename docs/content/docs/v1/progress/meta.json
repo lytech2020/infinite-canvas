@@ -3,7 +3,12 @@
   "root": true,
   "defaultOpen": true,
   "pages": [
-    "[更新日志](/docs/progress/changelog)",
+    "[更新日志](/docs/v1/progress/changelog)",
+    "cloud-backend-plan",
+    "cloud-backend-tech",
+    "cloud-frontend-plan",
+    "cloud-analytics-plan",
+    "multilingual-plan",
     "local-agent-integration-plan",
     "prompt-chip-input-plan",
     "pending-test",
