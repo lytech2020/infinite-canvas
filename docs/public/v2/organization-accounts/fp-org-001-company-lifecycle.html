@@ -1,0 +1,62 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>FP-ORG-001 公司生命周期与平台管理</title><script src="/vendor/mermaid.min.js"></script><style>body{margin:0;font:14px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif;color:#172033;background:#f6f8fb}header{padding:28px 5%;background:#10243d;color:white}main{max-width:1180px;margin:20px auto;padding:28px;background:white}nav{columns:4;padding:12px;background:#eef3f8}nav a{display:block;color:#1f5f99}section{margin:30px 0}h2{border-bottom:2px solid #d9e1ec;padding-bottom:7px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #d9e1ec;padding:8px;text-align:left;vertical-align:top}th{background:#eef3f8}.diagram{overflow:auto;border:1px solid #d9e1ec;padding:12px}.ok{color:#19735a}.assume{color:#9a5b00}.open{color:#b42318}code{background:#eef3f8;padding:2px 4px}@media print{body{background:white}main{margin:0;max-width:none}nav{display:none}}</style></head><body>
+<header><h1>FP-ORG-001 公司生命周期与平台管理</h1><p>平台管理员创建并管理公司、公司管理员和公司级权益</p></header><main>
+<nav><a href="#s1">1 文档信息</a><a href="#s2">2 输入整理</a><a href="#s3">3 影响</a><a href="#s4">4 方针</a><a href="#s5">5 流程</a><a href="#s6">6 画面</a><a href="#s7">7 项目</a><a href="#s8">8 迁移</a><a href="#s9">9 API</a><a href="#s10">10 DB</a><a href="#s11">11 权限</a><a href="#s12">12 校验</a><a href="#s13">13 日志</a><a href="#s14">14 外部</a><a href="#s15">15 数据迁移</a><a href="#s16">16 测试</a><a href="#s17">17 发布</a><a href="#s18">18 任务</a><a href="#s19">19 未决</a><a href="#s20">20 追踪</a></nav>
+<section id="s1"><h2>1. 文档信息</h2><p>状态：<b class="ok">确认済</b>。关联总体设计：<code>overall-design.html</code>。设计范围只含公司主数据和平台管理，不含成员日常管理与积分结算实现。</p></section>
+<section id="s2"><h2>2. 功能点输入整理</h2><table><tr><th>项目</th><th>内容</th></tr><tr><td>Business Purpose</td><td>平台管理员以公司为单位配置客户、负责人、状态和整体权益</td></tr><tr><td>New Behavior</td><td>创建、查看、编辑、停用公司；指定首个公司管理员</td></tr><tr><td>Changed Behavior</td><td>V1 普通用户自助注册入口与 registration_open 设置在 FP-ORG-002 下线</td></tr><tr><td>Out of Scope</td><td>公司自助注册、公司删除、共享公司登录账号</td></tr></table></section>
+<section id="s3"><h2>3. 既存影响分析</h2><div class="diagram"><pre class="mermaid">flowchart LR
+FP["FP-ORG-001"] --> A["平台后台 拡張"]
+FP --> B["users 変更"]
+FP --> C["sessions 変更"]
+FP --> D["companies 追加"]
+FP --> E["审计 拡張"]</pre></div><p>现有普通用户列表需要增加公司筛选；平台管理员仍为平台级身份，不绑定公司。</p></section>
+<section id="s4"><h2>4. 最小修改方针</h2><p>新增 <code>companies</code>，在现有用户上增加公司关系。公司停用校验放入统一认证上下文，避免每个业务模块自行判断。</p></section>
+<section id="s5"><h2>5. 处理流程详细设计</h2><div class="diagram"><pre class="mermaid">flowchart TD
+A["平台管理员新建公司"] --> B["校验名称/编号/管理员邮箱"]
+B --> C["事务创建公司"]
+C --> D["创建首个公司管理员"]
+D --> D1["生成一次性初始密码并置 must_change_password"]
+D1 --> E["创建积分账户"]
+E --> F["记录审计"]
+F --> G["进入公司详情"]</pre></div></section>
+<section id="s6"><h2>6. 画面详细设计</h2><table><tr><th>画面</th><th>内容</th></tr><tr><td>SCR-FP-ORG-001-001 公司列表</td><td>编号、名称、状态、管理员、成员数、积分余额、最近活动</td></tr><tr><td>SCR-FP-ORG-001-002 公司详情</td><td>概览、成员、模型、渠道、积分、用量、审计 Tab</td></tr><tr><td>SCR-FP-ORG-001-003 新建公司</td><td>基本信息和首个公司管理员；不配置共享密码</td></tr></table></section>
+<section id="s7"><h2>7. 画面项目定义</h2><table><tr><th>ID</th><th>字段</th><th>规则</th></tr><tr><td>ITEM-FP-ORG-001-001</td><td>公司编号</td><td>必填、唯一、创建后不可修改</td></tr><tr><td>ITEM-FP-ORG-001-002</td><td>公司名称</td><td>必填，1～100 字</td></tr><tr><td>ITEM-FP-ORG-001-003</td><td>状态</td><td>enabled / disabled</td></tr><tr><td>ITEM-FP-ORG-001-004</td><td>首个管理员邮箱</td><td>必填，不得属于其他公司</td></tr></table></section>
+<section id="s8"><h2>8. 画面迁移设计</h2><div class="diagram"><pre class="mermaid">stateDiagram-v2
+[*] --> CompanyList
+CompanyList --> CreateCompany: 新建
+CreateCompany --> CompanyDetail: 创建成功
+CreateCompany --> CreateCompany: 校验错误
+CompanyList --> CompanyDetail: 查看
+CompanyDetail --> CompanyList: 返回</pre></div></section>
+<section id="s9"><h2>9. API 详细设计</h2><table><tr><th>方法</th><th>路径</th><th>要点</th></tr><tr><td>GET/POST</td><td>/api/v1/admin/companies</td><td>分页筛选；创建使用独立 <code>Idempotency-Key</code> 请求头，与生成 requestId 无关</td></tr><tr><td>GET/PATCH</td><td>/api/v1/admin/companies/{id}</td><td>详情与名称、状态修改</td></tr><tr><td>PATCH</td><td>/api/v1/admin/users/{id}/status</td><td>仅平台管理员可停用、归档或恢复公司管理员；操作前保证该公司至少保留一个 active company_admin</td></tr><tr><td>PATCH</td><td>/api/v1/admin/users/{id}/company-role</td><td>仅平台管理员任免公司管理员；降级前执行最后管理员保护</td></tr></table><div class="diagram"><pre class="mermaid">sequenceDiagram
+actor A as 平台管理员
+participant UI as 公司后台
+participant API as Admin API
+participant DB as DB
+A->>UI: 创建公司
+UI->>API: POST companies
+API->>DB: 事务创建公司/管理员/积分账户
+DB-->>API: result
+API-->>UI: company</pre></div></section>
+<section id="s10"><h2>10. 数据库详细设计</h2><div class="diagram"><pre class="mermaid">erDiagram
+COMPANIES ||--o{ USERS : contains
+COMPANIES ||--|| CREDIT_ACCOUNTS : owns
+COMPANIES { string id PK string code UK string name string status datetime created_at datetime updated_at }
+USERS { string id PK string company_id FK string company_role string status boolean must_change_password }</pre></div><p><code>companies</code> 不物理删除。公司编号和归档成员邮箱均不复用。</p></section>
+<section id="s11"><h2>11. 权限 / 角色 / 数据范围设计</h2><div class="diagram"><pre class="mermaid">flowchart TD
+A["访问公司管理"] --> B{"role=admin"}
+B -- 否 --> X["403"]
+B -- 是 --> C["允许全公司范围"]
+C --> D["状态/管理员变更写审计"]</pre></div></section>
+<section id="s12"><h2>12. 校验 / 错误处理设计</h2><table><tr><th>ID</th><th>错误</th></tr><tr><td>VAL-FP-ORG-001-001</td><td>公司编号重复 → COMPANY_CODE_EXISTS</td></tr><tr><td>VAL-FP-ORG-001-002</td><td>管理员已属于其他公司 → USER_ALREADY_ASSIGNED</td></tr><tr><td>VAL-FP-ORG-001-003</td><td>停用公司 → 撤销成员会话并拒绝新请求</td></tr><tr><td>VAL-FP-ORG-001-004</td><td>停用、归档或降级最后一个 active company_admin → LAST_COMPANY_ADMIN_REQUIRED</td></tr></table></section>
+<section id="s13"><h2>13. 日志 / 监查 / 运用设计</h2><p>审计公司创建、名称变更、启停和首个管理员设置；监控停用公司仍产生新任务、无管理员公司和公司关系缺失。</p></section>
+<section id="s14"><h2>14. 外部接口 / 文件 / 批处理 / 通知</h2><p>无新增外部接口。<span class="assume">推定</span> 公司停用时向公司管理员发送站内通知；通知失败不回滚停用。</p></section>
+<section id="s15"><h2>15. 数据迁移 / 初期数据 / 兼容性</h2><p>项目未上线，直接由 seed 创建平台管理员、示例公司和公司管理员；不创建个人组织，不回填旧普通账号。平台管理员不绑定公司。</p></section>
+<section id="s16"><h2>16. 测试设计观点</h2><ul><li>公司创建事务任一步失败不得留下半成品。</li><li>停用后成员新旧会话均不可调用业务 API。</li><li>平台管理员账号不受公司停用影响。</li><li>公司列表汇总不得跨公司错算。</li></ul></section>
+<section id="s17"><h2>17. 发布 / 回滚 / 影响确认</h2><div class="diagram"><pre class="mermaid">flowchart TD
+A["创建表"] --> B["上线管理 API"] --> C["seed 创建公司与管理员"] --> D["校验新账号关系"] --> E{"校验"}
+E -- 失败 --> R["关闭入口并修正 seed 后重建"]
+E -- 成功 --> F["启用公司校验"]</pre></div></section>
+<section id="s18"><h2>18. 开发任务拆分</h2><p>TASK-FP-ORG-001-001 公司表与服务；002 管理 API；003 管理页面；004 会话撤销；005 审计与回归测试。</p></section>
+<section id="s19"><h2>19. 未决事项与风险</h2><p>OPEN-FP-ORG-001-001：公司停用时运行中任务处理。当前推定为 queued 取消并释放、running 允许完成结算但成员会话立即失效；平台管理员可查看结果，公司恢复后成员按原权限查看。Hard 前需确认。</p></section>
+<section id="s20"><h2>20. 追踪矩阵</h2><table><tr><th>需求</th><th>画面/API/DB</th><th>测试</th></tr><tr><td>平台创建公司</td><td>SCR-001-003 / POST companies / companies</td><td>公司创建事务</td></tr><tr><td>启停公司</td><td>SCR-001-002 / PATCH company / sessions</td><td>停用与会话撤销</td></tr></table></section>
+</main><script>mermaid.initialize({startOnLoad:true,securityLevel:"loose"})</script></body></html>

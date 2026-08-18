@@ -1,0 +1,67 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>FP-ORG-002 成员、角色与账号归档</title><script src="/vendor/mermaid.min.js"></script><style>body{margin:0;font:14px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif;color:#172033;background:#f6f8fb}header{padding:28px 5%;background:#10243d;color:white}main{max-width:1180px;margin:20px auto;padding:28px;background:white}nav{columns:4;padding:12px;background:#eef3f8}nav a{display:block;color:#1f5f99}section{margin:30px 0}h2{border-bottom:2px solid #d9e1ec;padding-bottom:7px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #d9e1ec;padding:8px;text-align:left;vertical-align:top}th{background:#eef3f8}.diagram{overflow:auto;border:1px solid #d9e1ec;padding:12px}.ok{color:#19735a}.assume{color:#9a5b00}code{background:#eef3f8;padding:2px 4px}@media print{body{background:white}main{margin:0;max-width:none}nav{display:none}}</style></head><body>
+<header><h1>FP-ORG-002 成员、角色与账号归档</h1><p>一个普通用户只能属于一个公司；归档账号但保留全部历史数据</p></header><main><nav><a href="#s1">1 文档信息</a><a href="#s2">2 输入</a><a href="#s3">3 影响</a><a href="#s4">4 方针</a><a href="#s5">5 流程</a><a href="#s6">6 画面</a><a href="#s7">7 项目</a><a href="#s8">8 迁移</a><a href="#s9">9 API</a><a href="#s10">10 DB</a><a href="#s11">11 权限</a><a href="#s12">12 校验</a><a href="#s13">13 日志</a><a href="#s14">14 外部</a><a href="#s15">15 数据迁移</a><a href="#s16">16 测试</a><a href="#s17">17 发布</a><a href="#s18">18 任务</a><a href="#s19">19 未决</a><a href="#s20">20 追踪</a></nav>
+<section id="s1"><h2>1. 文档信息</h2><p>状态：<b class="ok">确认済</b>。角色为平台管理员、公司管理员、公司成员；不保留个人用户。</p></section>
+<section id="s2"><h2>2. 功能点输入整理</h2><table><tr><th>目的</th><td>公司管理员添加、维护和归档本公司员工</td></tr><tr><th>确认行为</th><td>归档后禁止登录和新写入，历史数据继续真实保留并归属原公司</td></tr><tr><th>Changed Behavior</th><td>删除 <code>POST /auth/register</code>、登录页注册模式和 <code>registration_open</code>；数据库 CHECK 强制普通用户 companyId 非空、平台管理员为空</td></tr><tr><th>范围外</th><td>跨公司加入、成员转移、物理删除、共享账号</td></tr></table></section>
+<section id="s3"><h2>3. 既存影响分析</h2><div class="diagram"><pre class="mermaid">flowchart LR
+FP["FP-ORG-002"] --> U["users 変更"]
+FP --> S["sessions 変更"]
+FP --> A["auth/me 拡張"]
+FP --> UI["公司成员画面 追加"]
+FP --> LOG["审计 拡張"]</pre></div></section>
+<section id="s4"><h2>4. 最小修改方针</h2><p>继续复用邮箱密码和服务端会话；在用户记录上保存唯一 companyId、companyRole、三态 status、archivedAt 和 mustChangePassword。认证只以 status 判定，archivedAt 仅记录归档时间。归档撤销全部会话，不搬迁或删除业务数据。</p></section>
+<section id="s5"><h2>5. 处理流程详细设计</h2><div class="diagram"><pre class="mermaid">flowchart TD
+A["公司管理员添加成员"] --> B{"邮箱是否存在"}
+B -- 否 --> C["创建本公司成员"]
+B -- 是且同公司归档 --> D["禁止直接复用，走恢复流程 未决"]
+B -- 是且其他公司 --> X["拒绝"]
+C --> E["生成一次性初始密码并要求首次改密"]
+E --> F["设置成员权益并记录审计"]
+G["归档成员"] --> H["仅允许 member 且非本人"] --> I["标记 archived 并撤销会话"]
+I --> J["queued 任务取消并释放；running 任务允许结束结算"]</pre></div></section>
+<section id="s6"><h2>6. 画面详细设计</h2><table><tr><th>画面</th><th>能力</th></tr><tr><td>SCR-FP-ORG-002-001 成员列表</td><td>搜索、状态筛选、添加、查看、归档普通成员</td></tr><tr><td>SCR-FP-ORG-002-002 成员详情</td><td>基本信息、模型、积分上限、并发、用量；公司管理员不可编辑自己或同级管理员</td></tr><tr><td>SCR-FP-ORG-002-003 添加成员</td><td>邮箱、一次性初始密码和可选初始权益；首次登录强制改密</td></tr><tr><td>SCR-FP-ORG-002-004 强制改密</td><td>must_change_password 用户只能进入本页或退出</td></tr></table></section>
+<section id="s7"><h2>7. 画面项目定义</h2><table><tr><th>ID</th><th>字段</th><th>规则</th></tr><tr><td>ITEM-FP-ORG-002-001</td><td>邮箱</td><td>全局唯一，规范化后比较</td></tr><tr><td>ITEM-FP-ORG-002-002</td><td>公司角色</td><td>company_admin / member；公司管理员由平台管理员任免</td></tr><tr><td>ITEM-FP-ORG-002-003</td><td>账号状态</td><td>active / disabled / archived；disabled 可恢复，archived 首期不可由公司端恢复</td></tr><tr><td>ITEM-FP-ORG-002-004</td><td>must_change_password</td><td>初建和平台重置后为 true，成功改密后为 false</td></tr></table></section>
+<section id="s8"><h2>8. 画面迁移设计</h2><div class="diagram"><pre class="mermaid">stateDiagram-v2
+[*] --> MemberList
+MemberList --> CreateMember: 添加
+CreateMember --> MemberList: 成功
+CreateMember --> CreateMember: 校验错误
+MemberList --> MemberDetail: 查看
+MemberDetail --> ArchiveConfirm: 归档
+ArchiveConfirm --> MemberList: 完成</pre></div></section>
+<section id="s9"><h2>9. API 详细设计</h2><table><tr><th>方法</th><th>路径</th><th>说明</th></tr><tr><td>GET/POST</td><td>/api/v1/company/members</td><td>强制当前公司范围，只创建 member；初始密码只在创建响应显示一次，数据库只存哈希且无二次查看接口</td></tr><tr><td>GET/PATCH</td><td>/api/v1/company/members/{id}</td><td>普通成员详情；禁止 self 与 company_admin 目标</td></tr><tr><td>POST</td><td>/api/v1/company/members/{id}/archive</td><td>归档普通成员并撤销全部会话；不执行“最后管理员”校验</td></tr><tr><td>POST</td><td>/api/v1/admin/users/{id}/password-reset</td><td>仅平台管理员重置，强审计并置 must_change_password；密码只在响应显示一次</td></tr><tr><td>删除</td><td>/api/v1/auth/register</td><td>V2 不保留自助注册</td></tr></table><div class="diagram"><pre class="mermaid">sequenceDiagram
+actor A as 公司管理员
+participant UI as 成员管理
+participant API as Company API
+participant DB as DB
+A->>UI: 归档员工
+UI->>API: POST archive
+API->>DB: 校验同公司/目标为 member/非本人
+API->>DB: status=archived + revoke sessions
+API-->>UI: archived</pre></div></section>
+<section id="s10"><h2>10. 数据库详细设计</h2><div class="diagram"><pre class="mermaid">erDiagram
+COMPANIES ||--o{ USERS : contains
+USERS ||--o{ SESSIONS : authenticates
+USERS ||--o{ PROJECTS : creates
+    USERS { string id PK string company_id FK string company_role string status datetime archived_at boolean must_change_password }
+    SESSIONS { string id PK string user_id FK datetime revoked_at }</pre></div><table><tr><th>ID</th><th>对象</th><th>变更</th></tr><tr><td>DB-FP-ORG-002-001</td><td>users</td><td><code>company_id</code> 可空；数据库 CHECK：<code>(role = 'admin' AND company_id IS NULL AND company_role IS NULL) OR (role = 'user' AND company_id IS NOT NULL AND company_role IN ('company_admin','member'))</code>。Prisma schema 只表达可空关系，migration SQL 手写 CHECK</td></tr><tr><td>DB-FP-ORG-002-002</td><td>sessions</td><td>disabled、archived、密码重置和公司停用时批量撤销</td></tr></table></section>
+<section id="s11"><h2>11. 权限 / 角色 / 数据范围设计</h2><div class="diagram"><pre class="mermaid">flowchart TD
+A["成员管理请求"] --> B{"平台管理员"}
+B -- 是 --> P["指定公司"]
+B -- 否 --> C{"company_role=company_admin"}
+C -- 否 --> X["403"]
+C -- 是 --> D["强制 target.company_id=current.company_id"]
+D --> E["允许"]</pre></div><table><tr><th>ID</th><th>规则</th></tr><tr><td>PERM-FP-ORG-002-001</td><td>平台管理员可管理全部公司用户；公司管理员的成员接口固定当前 companyId，且目标必须为本公司普通 member</td></tr><tr><td>PERM-FP-ORG-002-002</td><td>公司管理员禁止操作自己、同级 company_admin 或其他公司用户；公司管理员任免及最后管理员保护仅由平台管理员接口执行</td></tr></table><p>合法角色矩阵：平台管理员为 role=admin 且 companyId/companyRole 为空；公司管理员与成员均为 role=user、companyId 非空，companyRole 分别为 company_admin/member。公司管理员只能管理普通成员，不能操作自己或同级管理员；公司管理员任免由平台管理员完成。</p></section>
+<section id="s12"><h2>12. 校验 / 错误处理设计</h2><table><tr><th>ID</th><th>条件</th><th>错误码</th></tr><tr><td>VAL-FP-ORG-002-001</td><td>邮箱已属于其他公司</td><td>USER_ALREADY_ASSIGNED</td></tr><tr><td>VAL-FP-ORG-002-002</td><td>目标不属于当前公司</td><td>NOT_FOUND</td></tr><tr><td>VAL-FP-ORG-002-003</td><td>操作自己或同级管理员</td><td>FORBIDDEN</td></tr><tr><td>VAL-FP-ORG-002-004</td><td>role/companyId/companyRole 组合非法</td><td>DB-FP-ORG-002-001 的 migration CHECK 拒绝</td></tr><tr><td>VAL-FP-ORG-002-005</td><td>首次登录未改密访问其他接口</td><td>MUST_CHANGE_PASSWORD</td></tr><tr><td>VAL-FP-ORG-002-006</td><td>disabled 或 archived 账号请求</td><td>立即撤销现有会话并分别返回 ACCOUNT_DISABLED / ACCOUNT_ARCHIVED；判定优先级 archived → disabled → company disabled → must change password</td></tr></table></section>
+<section id="s13"><h2>13. 日志 / 监查 / 运用设计</h2><p>添加、角色变更、密码初始化、归档、未来恢复都写审计；归档记录操作者和原因。监控归档用户仍有有效会话或新业务写入。</p></section>
+<section id="s14"><h2>14. 外部接口 / 文件 / 批处理 / 通知</h2><p>首期不依赖 SMTP；删除注册接口、登录页注册模式和 registration_open 设置。公司管理员创建成员时得到一次性初始密码，成员首次登录强制改密；后续密码重置仅平台管理员执行。邮件邀请可后续扩展。</p></section>
+<section id="s15"><h2>15. 数据迁移 / 初期数据 / 兼容性</h2><p>项目未上线，直接定义 UserStatus=active/disabled/archived 和数据库约束，通过 seed 建立公司账号；不编写旧 disabled 映射或账号回填。</p></section>
+<section id="s16"><h2>16. 测试设计观点</h2><ul><li>TEST-FP-ORG-002-001：同一用户不能加入第二家公司。</li><li>TEST-FP-ORG-002-002：归档立即撤销会话，queued 取消，running 完成结算。</li><li>TEST-FP-ORG-002-003：归档后项目和用量仍按原成员展示。</li><li>TEST-FP-ORG-002-004：注册接口不存在且普通用户 companyId 必填。</li><li>TEST-FP-ORG-002-005：初始密码登录后只能改密或退出。</li><li>TEST-FP-ORG-002-006：公司管理员不能操作自己、同级管理员或其他公司成员。</li></ul></section>
+<section id="s17"><h2>17. 发布 / 回滚 / 影响确认</h2><div class="diagram"><pre class="mermaid">flowchart TD
+A["直接建立新用户三态与公司约束"] --> B["seed 公司账号"] --> C["关闭注册入口"] --> D["上线成员 API"] --> E["启用归档/强制改密"]
+E --> F{"异常"}
+F -- 是 --> R["关闭公司管理入口/恢复会话策略"]
+F -- 否 --> G["完成"]</pre></div></section>
+<section id="s18"><h2>18. 开发任务拆分</h2><p>TASK-002-001 用户字段；002 认证上下文；003 成员 API；004 页面；005 归档会话处理；006 审计和测试。</p></section>
+<section id="s19"><h2>19. 未决事项与风险</h2><p>OPEN-FP-ORG-002-001：是否允许恢复归档成员。建议首期仅平台管理员可恢复，公司管理员只能归档。</p></section>
+<section id="s20"><h2>20. 追踪矩阵</h2><table><tr><th>需求</th><th>设计对象</th><th>测试</th></tr><tr><td>唯一公司</td><td>DB-FP-ORG-002-001 CHECK + 创建校验</td><td>TEST-FP-ORG-002-001/004</td></tr><tr><td>账号归档且数据保留</td><td>status=archived + session revoke</td><td>TEST-FP-ORG-002-002/003</td></tr><tr><td>首次强制改密</td><td>must_change_password</td><td>TEST-FP-ORG-002-005</td></tr><tr><td>公司管理员边界</td><td>PERM-FP-ORG-002-002</td><td>TEST-FP-ORG-002-006</td></tr></table></section>
+</main><script>mermaid.initialize({startOnLoad:true,securityLevel:"loose"})</script></body></html>

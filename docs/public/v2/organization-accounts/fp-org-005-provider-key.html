@@ -1,0 +1,72 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>FP-ORG-005 公司专属渠道与密钥</title><script src="/vendor/mermaid.min.js"></script><style>body{margin:0;font:14px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif;color:#172033;background:#f6f8fb}header{padding:28px 5%;background:#10243d;color:white}main{max-width:1180px;margin:20px auto;padding:28px;background:white}nav{columns:4;padding:12px;background:#eef3f8}nav a{display:block;color:#1f5f99}section{margin:30px 0}h2{border-bottom:2px solid #d9e1ec;padding-bottom:7px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #d9e1ec;padding:8px;text-align:left;vertical-align:top}th{background:#eef3f8}.diagram{overflow:auto;border:1px solid #d9e1ec;padding:12px}.ok{color:#19735a}.assume{color:#9a5b00}code{background:#eef3f8;padding:2px 4px}@media print{body{background:white}main{margin:0;max-width:none}nav{display:none}}</style></head><body>
+<header><h1>FP-ORG-005 公司专属供应商渠道与密钥</h1><p>供应商渠道、Key 和路由仅由平台管理员配置，公司端永不获得上游配置</p></header><main><nav><a href="#s1">1 文档信息</a><a href="#s2">2 输入</a><a href="#s3">3 影响</a><a href="#s4">4 方针</a><a href="#s5">5 流程</a><a href="#s6">6 画面</a><a href="#s7">7 项目</a><a href="#s8">8 迁移</a><a href="#s9">9 API</a><a href="#s10">10 DB</a><a href="#s11">11 权限</a><a href="#s12">12 校验</a><a href="#s13">13 日志</a><a href="#s14">14 外部</a><a href="#s15">15 数据迁移</a><a href="#s16">16 测试</a><a href="#s17">17 发布</a><a href="#s18">18 任务</a><a href="#s19">19 未决</a><a href="#s20">20 追踪</a></nav>
+<section id="s1"><h2>1. 文档信息</h2><p>状态：<b class="ok">确认済</b>。本文“供应商渠道（Provider）”和“Base URL”均指后端调用 AI 供应商的上游地址与凭据，与公司访问本系统的网址无关。公司管理员不能配置上游配置；使用专属 Key 仍正常计积分。</p></section>
+<section id="s2"><h2>2. 功能点输入整理</h2><table><tr><th>目的</th><td>平台可为指定公司绑定独立供应商账号，同时统一掌控密钥安全和模型治理</td></tr><tr><th>新行为</th><td>渠道作用域、公司模型路由绑定、公共回退、密钥轮换</td></tr><tr><th>范围外</th><td>公司自带 Key、自助测试 Key、公司管理员查看密钥</td></tr></table></section>
+<section id="s3"><h2>3. 既存影响分析</h2><div class="diagram"><pre class="mermaid">flowchart LR
+FP["FP-ORG-005"] --> P["providers 拡張"]
+FP --> B["company bindings 追加"]
+FP --> R["生成路由 変更"]
+FP --> UI["平台渠道画面 拡張"]
+FP --> AUDIT["密钥审计 拡張"]</pre></div></section>
+<section id="s4"><h2>4. 最小修改方针</h2><p>继续使用现有 provider 密钥加密能力；为 provider 增加 platform/company 作用域或公司关系，通过绑定表选择路由。模型与 Key 不复制到公司前端。</p></section>
+<section id="s5"><h2>5. 处理流程详细设计</h2><div class="diagram"><pre class="mermaid">flowchart TD
+A["已授权模型调用"] --> B["查询公司+模型绑定"]
+B --> C{"存在启用专属渠道"}
+C -- 是 --> D["使用专属供应商渠道"]
+C -- 否 --> E{"允许公共回退"}
+E -- 是 --> F["使用平台公共渠道"]
+E -- 否 --> X["MODEL_ROUTE_UNAVAILABLE"]
+D --> D1["remoteNameOverride ?? model.remoteName"]
+D1 --> D2["apiVersionOverride ?? provider.apiVersion"]
+D2 --> G["服务端解密 Key 并调用"]
+F --> G
+G --> H["记录实际渠道快照"]</pre></div></section>
+<section id="s6"><h2>6. 画面详细设计</h2><table><tr><th>画面</th><th>能力</th></tr><tr><td>SCR-FP-ORG-005-001 平台供应商渠道</td><td>新建公共/公司专属 Provider、密钥轮换、启停</td></tr><tr><td>SCR-FP-ORG-005-002 公司供应商渠道绑定</td><td>选择专属 Provider、Deployment/远端模型名覆盖、API Version 覆盖、公共回退和保存前连接测试</td></tr><tr><td>公司管理端</td><td>仅显示模型可用状态，不显示 Base URL、Deployment、API Version、供应商账号或 Key</td></tr></table></section>
+<section id="s7"><h2>7. 画面项目定义</h2><table><tr><th>字段</th><th>规则</th></tr><tr><td>Provider 作用域</td><td>platform / company；company 时 companyId 必填</td></tr><tr><td>API Key</td><td>写入时可填，读取永远只返回是否已配置和掩码</td></tr><tr><td>模型绑定</td><td>companyId + modelId + providerId</td></tr><tr><td>remoteNameOverride</td><td>可空；Azure 时为公司订阅内 Deployment 名称</td></tr><tr><td>apiVersionOverride</td><td>可空；覆盖 Provider 默认 API Version</td></tr><tr><td>公共回退</td><td>默认关闭，必须平台管理员显式开启</td></tr></table></section>
+<section id="s8"><h2>8. 画面迁移设计</h2><div class="diagram"><pre class="mermaid">stateDiagram-v2
+[*] --> CompanyDetail
+CompanyDetail --> ProviderBindings: 渠道 Tab
+ProviderBindings --> ProviderEdit: 新建/编辑专属渠道
+ProviderEdit --> ProviderBindings: 保存成功
+ProviderEdit --> ProviderEdit: 连接校验失败
+ProviderBindings --> CompanyDetail: 返回</pre></div></section>
+<section id="s9"><h2>9. API 详细设计</h2><table><tr><th>方法</th><th>路径</th><th>说明</th></tr><tr><td>GET/POST/PATCH</td><td>/api/v1/admin/providers</td><td>增加作用域；响应密钥脱敏</td></tr><tr><td>GET/PUT</td><td>/api/v1/admin/companies/{id}/provider-bindings</td><td>公司模型路由</td></tr><tr><td>无</td><td>公司管理员 API</td><td>不提供渠道配置能力</td></tr></table><div class="diagram"><pre class="mermaid">sequenceDiagram
+participant G as 生成网关
+participant R as 路由服务
+participant DB as DB
+participant K as 密钥解密
+participant V as 供应商
+G->>R: companyId+modelId
+R->>DB: 专属绑定/公共回退
+DB-->>R: provider
+R->>K: 解密服务端 Key
+K-->>R: 内存凭据
+R->>V: 模型调用
+V-->>G: 结果/用量</pre></div></section>
+<section id="s10"><h2>10. 数据库详细设计</h2><div class="diagram"><pre class="mermaid">erDiagram
+COMPANIES ||--o{ PROVIDERS : scopes
+COMPANIES ||--o{ COMPANY_PROVIDER_BINDINGS : routes
+MODELS ||--o{ COMPANY_PROVIDER_BINDINGS : selects
+PROVIDERS ||--o{ COMPANY_PROVIDER_BINDINGS : binds
+PROVIDERS { string id PK string company_id FK string scope string api_key_cipher boolean enabled }
+COMPANY_PROVIDER_BINDINGS { string company_id FK string model_id FK string provider_id FK string remote_name_override string api_version_override boolean allow_platform_fallback boolean enabled }</pre></div><table><tr><th>ID</th><th>对象</th><th>字段与约束</th></tr><tr><td>DB-FP-ORG-005-001</td><td>providers</td><td>scope(platform/company)、company_id、api_format、api_key_cipher、enabled；migration 手写 CHECK：<code>(scope = 'platform' AND company_id IS NULL) OR (scope = 'company' AND company_id IS NOT NULL)</code>，Prisma 只表达可空关系</td></tr><tr><td>DB-FP-ORG-005-002</td><td>company_provider_bindings</td><td>company_id + model_id 唯一；provider_id、remote_name_override、api_version_override、allow_platform_fallback、enabled；不复制密钥；绑定的 company_id 必须与 company scope Provider 一致</td></tr></table><p>路由最终参数为 <code>binding.remote_name_override ?? model.remote_name</code> 与 <code>binding.api_version_override ?? provider.api_version</code>，解决公司 Azure Deployment 名称和版本不同的问题。</p></section>
+<section id="s11"><h2>11. 权限 / 角色 / 数据范围设计</h2><div class="diagram"><pre class="mermaid">flowchart TD
+A["渠道/密钥请求"] --> B{"平台管理员"}
+B -- 否 --> X["403，不返回资源存在性"]
+B -- 是 --> C["允许配置"]
+C --> D["响应移除密文并返回掩码"]
+D --> E["写密钥访问/变更审计"]</pre></div><table><tr><th>ID</th><th>规则</th></tr><tr><td>PERM-FP-ORG-005-001</td><td>Provider、Base URL、Key、Deployment、API Version 仅平台管理员可读写；公司端只得到模型可用状态</td></tr><tr><td>PERM-FP-ORG-005-002</td><td>生成服务从认证上下文取得 companyId，解密只发生在服务端内存</td></tr></table><p>供应商原始错误中可能包含账号或端点信息，普通成员和公司管理员只接收稳定错误码。</p></section>
+<section id="s12"><h2>12. 校验 / 错误处理设计</h2><table><tr><th>条件</th><th>错误码</th></tr><tr><td>绑定的 Provider 属于其他公司</td><td>INVALID_PROVIDER_SCOPE</td></tr><tr><td><code>binding.provider.api_format != model.provider.api_format</code></td><td>PROVIDER_API_FORMAT_MISMATCH；保存绑定和执行路由时双重校验，禁止跨协议静默映射</td></tr><tr><td>专属 Provider 停用且禁止回退</td><td>MODEL_ROUTE_UNAVAILABLE</td></tr><tr><td>Key 解密失败</td><td>PROVIDER_SECRET_INVALID，并触发平台告警</td></tr><tr><td>公司角色访问整类平台 Provider API</td><td>FORBIDDEN 403；角色级不可达，不是具体跨租户资源查询</td></tr></table><p>MODEL_ROUTE_UNAVAILABLE 的 details 不得包含 Provider 名称、Base URL、Deployment 或 API Version 片段。</p></section>
+<section id="s13"><h2>13. 日志 / 监查 / 运用设计</h2><p>密钥新建、轮换、清空、渠道启停和绑定变更必须审计；日志只记录 providerId、companyId 和掩码，不记录明文。监控专属渠道失败率和公共回退次数。</p></section>
+<section id="s14"><h2>14. 外部接口 / 文件 / 批处理 / 通知</h2><p>供应商协议继续复用现有适配器。密钥轮换允许短期双 Key 的需求尚未确认；首期采用一次性替换，保存前执行可选连接测试。</p></section>
+<section id="s15"><h2>15. 数据迁移 / 初期数据 / 兼容性</h2><p>项目未上线，由 seed 直接创建 platform 作用域 Provider。公司专属 Provider 必须由平台管理员新建，不复制公共密钥。</p></section>
+<section id="s16"><h2>16. 测试设计观点</h2><ul><li>TEST-FP-ORG-005-001：专属 Provider 优先和公共回退开关。</li><li>TEST-FP-ORG-005-002：不能跨公司绑定 Provider；公司端不可见上游配置。</li><li>TEST-FP-ORG-005-003：Azure Deployment 和 API Version override 生效且不影响公共 Provider。</li><li>TEST-FP-ORG-005-004：apiFormat 不一致时保存和运行均拒绝。</li><li>TEST-FP-ORG-005-005：保存前连接测试使用 override 后的完整路由。</li><li>TEST-FP-ORG-005-006：密钥轮换后新任务使用新凭据，历史用量保留原 providerId 和路由快照。</li></ul></section>
+<section id="s17"><h2>17. 发布 / 回滚 / 影响确认</h2><div class="diagram"><pre class="mermaid">flowchart TD
+A["按新 schema 创建 Provider"] --> B["seed platform Provider"] --> C["上线绑定服务"] --> D["测试专属渠道"] --> E["按公司启用"]
+E --> F{"异常"}
+F -- 是 --> R["关闭专属绑定并按配置公共回退"]
+F -- 否 --> G["完成"]</pre></div></section>
+<section id="s18"><h2>18. 开发任务拆分</h2><p>TASK-005-001 作用域字段；002 绑定表/API；003 路由服务；004 平台页面；005 密钥与错误脱敏；006 回退和隔离测试。</p></section>
+<section id="s19"><h2>19. 未决事项与风险</h2><p><span class="assume">推定</span> 公共回退默认关闭，避免公司专属供应商故障时意外消耗平台公共 Key；可由平台管理员逐绑定开启。</p></section>
+<section id="s20"><h2>20. 追踪矩阵</h2><table><tr><th>需求</th><th>对象</th><th>测试</th></tr><tr><td>平台配置专属 Key</td><td>provider scope / admin API</td><td>权限与脱敏</td></tr><tr><td>公司模型路由</td><td>provider bindings / router</td><td>优先级与回退</td></tr><tr><td>专属 Key 仍计积分</td><td>生成快照 + FP-ORG-006</td><td>渠道切换结算一致</td></tr></table></section>
+</main><script>mermaid.initialize({startOnLoad:true,securityLevel:"loose"})</script></body></html>

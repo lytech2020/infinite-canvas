@@ -1,0 +1,191 @@
+---
+title: 组织账号与积分前端改造计划
+description: 公司管理、成员权益、模型缓存、积分用量和权限守卫的前端落地范围
+---
+
+# 组织账号与积分前端改造计划
+
+本文对应 FP-ORG-001～FP-ORG-007，只描述 V2 前端新增与既有页面改造范围。页面文案保持中文并同步日语资源；样式复用现有 Ant Design、Tailwind 和管理后台主题。
+
+## 1. 认证状态与角色
+
+`GET /api/v1/auth/me` 增加：
+
+```ts
+type CloudUser = {
+  id: string;
+  email: string;
+  role: "admin" | "user";
+  status: "active" | "disabled" | "archived";
+  companyId: string | null;
+  companyName: string | null;
+  companyRole: "company_admin" | "member" | null;
+  mustChangePassword: boolean;
+};
+```
+
+合法组合：
+
+- 平台管理员：`role=admin`，公司字段为空。
+- 公司管理员：`role=user`、`companyId` 非空、`companyRole=company_admin`。
+- 公司成员：`role=user`、`companyId` 非空、`companyRole=member`。
+
+`web/src/stores/use-user-store.ts` 保存这些服务端状态，但不允许前端自行修改 companyId 或角色。退出、切号和跨标签页会话变化时，继续清空账号业务 store，并同时清空公司模型、额度和公司管理查询缓存。
+
+## 2. 登录与强制改密
+
+改造 `web/src/pages/login/index.tsx`：
+
+- 删除注册 Tab、注册请求和注册链接。
+- 登录成功但 `mustChangePassword=true` 时只能进入强制改密页。
+- 强制改密完成后重新请求 `/auth/me`，再进入正常页面。
+- `ACCOUNT_DISABLED`、`ACCOUNT_ARCHIVED`、`COMPANY_DISABLED`、`MUST_CHANGE_PASSWORD` 使用稳定错误码渲染中日文文案。
+
+删除 `web/src/services/api/auth.ts` 和 `use-user-store.ts` 中普通用户自助注册动作。公司成员创建和平台密码重置使用独立管理 API，不复用公开注册接口。
+
+## 3. 权限守卫
+
+保留 `web/src/components/layout/require-admin.tsx` 作为平台管理员守卫，新增：
+
+- `web/src/components/layout/require-company-admin.tsx`：要求已登录、公司启用、账号 active、`companyRole=company_admin`。
+- `web/src/components/layout/require-password-changed.tsx`：`mustChangePassword=true` 时统一重定向强制改密页。
+
+前端守卫只负责页面体验，所有 API 必须再次执行服务端角色和公司范围校验。
+
+## 4. 路由与布局
+
+在 `web/src/router.tsx` 增加：
+
+| 路由 | 页面 | 守卫 |
+| --- | --- | --- |
+| `/admin/companies` | 平台公司列表 | RequireAdmin |
+| `/admin/companies/:companyId` | 公司详情与权益 | RequireAdmin |
+| `/admin/users` | 平台用户管理；成员详情操作中提供“重置密码”并二次确认 | RequireAdmin |
+| `/admin/model-pricing` | 模型积分价格 | RequireAdmin |
+| `/admin/credit-operations` | 公司积分操作与核对 | RequireAdmin |
+| `/company/members` | 公司成员管理 | RequireCompanyAdmin |
+| `/company/usage` | 公司用量与积分 | RequireCompanyAdmin |
+| `/company/content` | 公司内容审查 | RequireCompanyAdmin |
+| `/settings/usage` | 我的额度与用量 | RequirePasswordChanged |
+| `/auth/change-initial-password` | 首次强制改密 | 已登录用户 |
+
+公司管理页面复用 `web/src/layouts/admin-layout.tsx` 的视觉规范，但使用独立公司菜单与数据范围，不把公司管理员伪装成平台管理员。
+
+## 5. 页面目录
+
+新增页面按项目目录规范放置：
+
+```text
+web/src/pages/admin/companies/
+  index.tsx
+  detail.tsx
+  components/
+
+web/src/pages/admin/model-pricing/
+  index.tsx
+
+web/src/pages/admin/credit-operations/
+  index.tsx
+
+web/src/pages/company/members/
+  index.tsx
+  components/
+
+web/src/pages/company/usage/
+  index.tsx
+
+web/src/pages/company/content/
+  index.tsx
+
+web/src/pages/settings/usage/
+  index.tsx
+```
+
+单页面私有组件留在对应目录，不新增只转发 props 的 Manager 组件。
+
+## 6. API 服务
+
+前端请求统一放在 `web/src/services/api/`：
+
+- `admin-companies.ts`：公司、平台公司管理员、公司模型、Provider 绑定和公司积分。
+- `admin-pricing.ts`：价格草稿、试算、发布和价格版本。
+- `company.ts`：成员、成员模型、成员额度、公司用量和内容审查。
+- `usage.ts`：成员本人额度与明细。
+
+任何服务都不接收或返回供应商 Key 明文。公司端类型中不出现 Base URL、Deployment 或 API Version 字段。
+
+## 7. 既有页面改造
+
+- `web/src/pages/admin/users/index.tsx`：增加公司筛选和三态账号；删除旧 dailyCallLimit 编辑，平台成员详情跳转公司。
+- `web/src/pages/admin/overview/index.tsx`：增加公司数量、公司积分和异常公司摘要。
+- `web/src/pages/admin/usage/index.tsx`：增加公司、积分、预占和底层用量来源筛选。
+- `web/src/pages/admin/prompts/index.tsx`：保留平台范围；公司内容审查复用其单条敏感访问与审计模式。
+- `web/src/pages/admin/catalog/index.tsx`：继续管理平台模型和 Provider；公司绑定在公司详情中配置。
+- `web/src/components/layout/user-menu.tsx`：公司管理员显示“公司管理”，所有成员显示“我的额度”。
+- `web/src/components/layout/app-top-nav.tsx`：显示当前公司名称摘要，不提供公司切换器。
+
+## 8. 模型列表缓存
+
+`web/src/stores/use-cloud-model-store.ts` 的数据仍来自 `GET /api/v1/models`，返回值已经是平台启用、公司授权、成员授权和可用路由的最终交集。
+
+前端没有授权变更推送通道，采用“会话事件 + 页面聚焦/TTL + 错误码”刷新。缓存 TTL 首期为 60 秒；窗口重新获得焦点且缓存已过期时重取。下列事件触发清空或重取：
+
+- 登录、退出、切号或跨标签页会话变化。
+- 当前管理页面成功修改公司/成员模型授权、Provider 路由或模型状态后，主动清空本会话缓存；其他已登录终端最迟在聚焦或 60 秒 TTL 后更新。
+- 生成接口返回 `MODEL_NOT_ENTITLED`、`MODEL_ROUTE_UNAVAILABLE` 或 `MODEL_PRICE_UNAVAILABLE`。
+
+刷新后若原默认模型不在列表，按“成员默认 → 公司默认 → 平台默认（仍在交集内）→ 无默认”处理；无默认时要求用户显式选择，不能静默切换到其他收费模型。
+
+## 9. 积分与用量展示
+
+所有界面明确区分：
+
+- 公司余额：真实可消费积分。
+- 公司本月上限与已用：已用包含已结算和 active 预占。
+- 成员本月上限与已用：只是消费限制，不是成员钱包。
+- 预占：进行中任务暂时占用。
+- 用量来源：provider / estimated。
+- 计费模式：Shadow / Soft / Hard。
+
+Shadow 显示“模拟积分”，不能与真实余额混合。Soft 显示预警但不伪装成阻断；Hard 才显示因额度不足被拒绝。
+
+## 10. 敏感内容审查
+
+公司内容审查遵循 FP-ORG-003：
+
+- 独立表记录按既有列筛选。
+- `user_data` 只按成员和 key 命名空间列出，单条查看整个 blob。
+- Agent 当前以 thread blob 为审计粒度。
+- 每次正文读取都由同一个 GET 请求先写审计再返回。
+- 媒体由单独 POST 请求内联审计后签发 TTL≤60 秒的一次性兑换 token；前端先调用兑换接口取得绑定当前会话和 upload 的 TTL≤60 秒同源 stream URL，再把它交给图片、视频或音频组件。兑换 token 只能消费一次，但 stream URL 在窗口内允许浏览器多次 Range 请求，以支持探测、续传和拖动；不得暴露对象存储预签名地址。
+- 审查媒体响应必须使用 `Cache-Control: no-store, private`，前端不得把兑换 token 或 stream URL 写入全局 store、localStorage、日志或下载历史。
+- 不提供提示词、生成内容或附件批量导出。
+
+## 11. 国际化
+
+在 `web/src/i18n/locales/zh-CN/` 和 `ja-JP/` 增加 company、credits、organization 权限和错误文案模块。稳定错误码至少覆盖：
+
+- COMPANY_DISABLED
+- ACCOUNT_DISABLED
+- ACCOUNT_ARCHIVED
+- MUST_CHANGE_PASSWORD
+- MODEL_NOT_ENTITLED
+- MODEL_ROUTE_UNAVAILABLE
+- MODEL_PRICE_UNAVAILABLE
+- COMPANY_CREDIT_INSUFFICIENT
+- COMPANY_PERIOD_LIMIT
+- MEMBER_PERIOD_LIMIT
+- COMPANY_CONCURRENCY_LIMIT
+- MEMBER_CONCURRENCY_LIMIT
+
+## 12. 前端验收
+
+- [ ] 普通用户不能看到注册入口。
+- [ ] 初始密码用户无法绕过强制改密页。
+- [ ] 平台、公司管理员和成员只能看到各自路由入口。
+- [ ] 退出和切号后所有公司业务缓存清空。
+- [ ] 本会话授权修改后主动刷新；其他终端在页面聚焦或 60 秒 TTL 内刷新，若期间提交失效模型则由服务端拒绝并以错误码强制刷新。
+- [ ] 公司管理员无法编辑自己或同级管理员。
+- [ ] 公司端任何响应和页面均不出现供应商上游配置。
+- [ ] Shadow、Soft、Hard 的展示和阻断语义准确。
+- [ ] 敏感内容每次打开都有对应审计；媒体兑换 token 只能消费一次，短时 stream URL 仅同会话同资源可 Range 读取且响应 no-store，页面不获得对象存储预签名下载地址。
