@@ -1,0 +1,4 @@
+interface:
+  display_name: "详细设计 Skill"
+  short_description: "根据开发者功能点生成HTML详细设计文档。"
+  default_prompt: "Use $detailed-design-from-feature-point to generate an HTML detailed design document with complete diagrams from a developer feature point input template."

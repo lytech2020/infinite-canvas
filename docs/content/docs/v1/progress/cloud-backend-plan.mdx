@@ -1,3 +1,8 @@
+---
+title: 云端版最小后台
+description: 云端后台的需求范围、实施清单与验收标准
+---
+
 # 云端版最小后台
 
 状态：实施中；最小后台主体、四类生成网关及用量统计已完成
@@ -8,7 +13,7 @@ Infinite Canvas 将部署为可供外部用户使用的云端产品。当前浏�
 
 本需求先设计一个最小可用后台，负责用户身份、模型与密钥、AI 请求代理、调用记录、Token 与媒体用量统计、文件限制、并发保护和管理员查询。
 
-技术栈、目录结构、数据库表、认证方式、对象存储、API 路径、统一响应结构、错误代码、环境变量和本地开发方式见 [云端版后台技术方案与接口契约](cloud-backend-tech.md)。本文件继续维护需求范围和验收标准。
+技术栈、目录结构、数据库表、认证方式、对象存储、API 路径、统一响应结构、错误代码、环境变量和本地开发方式见[云端版后台技术方案与接口契约](/docs/v1/progress/cloud-backend-tech)。本文件继续维护需求范围和验收标准。
 
 ## 2. 目标
 
@@ -377,12 +382,12 @@ Infinite Canvas 将部署为可供外部用户使用的云端产品。当前浏�
 
 ### 第一阶段：后台方案和接口契约
 
-- 新增 [云端版后台技术方案与接口契约](cloud-backend-tech.md)，确定技术栈、仓库结构、部署拓扑、数据库表、认证方式、对象存储流程、API 路径、统一响应结构、任务状态、错误代码、环境变量清单和本地开发启动方式。
+- 新增[云端版后台技术方案与接口契约](/docs/v1/progress/cloud-backend-tech)，确定技术栈、仓库结构、部署拓扑、数据库表、认证方式、对象存储流程、API 路径、统一响应结构、任务状态、错误代码、环境变量清单和本地开发启动方式。
 - 选型结论：Node.js 20 + TypeScript + Express 5 + zod + Prisma + PostgreSQL 16；邮箱密码登录配服务端会话 Cookie；S3 兼容对象存储；nginx 静态前端反向代理独立 Node API 服务。
 - 统一响应结构为成功 `{ "data": ... }`、失败 `{ "error": { "code", "message", "details" } }`，前端只依据稳定 `code` 选择中日文案。
 - 任务状态统一为 `queued`、`running`、`succeeded`、`failed`、`cancelled`，第一阶段在 API 进程内异步执行并由前端轮询。
 - 本阶段只更新文档，未新增后台代码，未改动前端和现有 Azure OpenAI 能力。
-- 涉及文件：`doc/tasks/cloud-backend-tech.md`（新增）、`doc/tasks/cloud-backend.md`、`doc/README.md`。
+- 涉及文档：`cloud-backend-tech.mdx`、`cloud-backend-plan.mdx`。
 - 数据库与接口变化：暂无实际变更，仅确定设计；实际建表随第二阶段的 Prisma 迁移落地。
 
 ### 第二阶段：用户和管理员
@@ -517,7 +522,7 @@ Infinite Canvas 将部署为可供外部用户使用的云端产品。当前浏�
 - [x] 接入后台模型列表和生成任务接口。
 - [x] 所有画布 AI 请求携带稳定 `project_id`。
 - [x] 接入稳定错误代码的中日文提示。
-- [x] 按 `cloud-frontend.md` 完成生成与本地渠道相关的云端界面精简、隐私说明和插件白名单限制。
+- [x] 按[云端版前端改造](/docs/v1/progress/cloud-frontend-plan)完成生成与本地渠道相关的云端界面精简、隐私说明和插件白名单限制。
 
 ## 18. 验收标准
 

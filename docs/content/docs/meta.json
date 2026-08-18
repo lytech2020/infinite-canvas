@@ -1,5 +1,9 @@
 {
-  "title": "Documentation",
+  "title": "文档版本",
   "root": true,
-  "pages": ["overview", "canvas", "development", "progress", "business", "support"]
+  "defaultOpen": true,
+  "pages": [
+    "v1",
+    "v2"
+  ]
 }

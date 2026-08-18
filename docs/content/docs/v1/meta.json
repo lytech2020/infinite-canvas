@@ -1,0 +1,12 @@
+{
+  "title": "V1",
+  "defaultOpen": true,
+  "pages": [
+    "overview",
+    "canvas",
+    "development",
+    "progress",
+    "business",
+    "support"
+  ]
+}

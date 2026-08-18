@@ -1,8 +1,13 @@
+---
+title: 云端部署与初始化
+description: 云端版的本地开发、数据库初始化、服务器部署与常见问题
+---
+
 # 云端版部署与初始化说明
 
 本文件说明如何在本地和服务器上把云端版跑起来。前端在 `web/`，后台在 `server/`，两者通过同源 `/api` 通信。
 
-配置项的完整解释见 [云端版后台技术方案与接口契约](tasks/cloud-backend-tech.md)。
+配置项的完整解释见[云端版后台技术方案与接口契约](/docs/v1/progress/cloud-backend-tech)。
 
 ## 1. 组成部分
 
@@ -102,7 +107,7 @@ docker compose up -d --build
 
 在 `server/` 目录执行 `npm run test:integration`。测试命令会构建并启动独立的 `infinite-canvas-test` Compose 项目，使用测试专用 PostgreSQL、MinIO 和模拟 AI 供应商，不会调用真实模型或读写开发环境数据；测试结束后默认删除测试容器与数据卷。需要保留现场排查时可执行 `KEEP_TEST_STACK=true npm run test:integration`，排查完成后用 `docker compose -f ../docker-compose.test.yml -p infinite-canvas-test down --volumes` 清理。
 
-完整覆盖范围和人工验收项见[后台集成测试](../docs/content/docs/development/backend-integration-tests.mdx)。当前用例已按最新用量结构调整，待重新运行确认。
+完整覆盖范围和人工验收项见[后台集成测试](/docs/v1/development/backend-integration-tests)。当前用例已按最新用量结构调整，待重新运行确认。
 
 生产后台镜像启动时会依次执行数据库迁移和幂等 seed。全新环境会创建初始管理员，已有环境不会覆盖管理员密码或自助注册设置。
 
@@ -114,7 +119,7 @@ docker compose up -d --build
 
 ## 4. 环境变量
 
-后台变量清单见 [技术方案第 8 节](tasks/cloud-backend-tech.md#8-环境变量清单)，`server/.env.example` 只保留已实现能力所需的变量，随阶段推进补充。
+后台变量清单见[技术方案第 8 节](/docs/v1/progress/cloud-backend-tech#8-环境变量清单)，`server/.env.example` 只保留已实现能力所需的变量，随阶段推进补充。
 
 前端的 `VITE_API_BASE_URL` 应留空并使用同源 `/api`。前端产物中不包含任何供应商密钥，渠道密钥只存在于后台数据库。
 

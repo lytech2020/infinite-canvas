@@ -58,15 +58,16 @@
 
 ## 文档规范
 
+- 项目文档统一放在 `docs/`；不要再新增 `doc/`。现有文档归档在 `docs/content/docs/v1/`，后续新增需求、方案和验收清单写入 `docs/content/docs/v2/`。
 - README 保持简洁，只放项目介绍、核心功能、快速开始和文档入口。
 - `docs/index.md` 放给 AI 使用的文档索引，不要再放到 `docs/content/docs/` 内容目录里。
-- 详细功能介绍写到 `docs/content/docs/overview/features.mdx`。
-- 后续待办写到 `docs/content/docs/progress/todo.mdx`。
-- 已实现但还需要用户测试确认的事项写到 `docs/content/docs/progress/pending-test.mdx`。
-- `docs/content/docs/progress/pending-test.mdx` 用来记录这个版本实际做了哪些可测试变更；`CHANGELOG.md` 的 `Unreleased` 只保留对这些变更的版本级归纳，避免逐条照搬实现细节。
+- 详细功能介绍写到 `docs/content/docs/v1/overview/features.mdx`。
+- V1 已有待办继续维护在 `docs/content/docs/v1/progress/todo.mdx`；新提出但尚未进入 V1 的后续需求写到 `docs/content/docs/v2/requirements.mdx`。
+- 已实现但还需要用户测试确认的事项写到 `docs/content/docs/v1/progress/pending-test.mdx`。
+- `docs/content/docs/v1/progress/pending-test.mdx` 用来记录这个版本实际做了哪些可测试变更；`CHANGELOG.md` 的 `Unreleased` 只保留对这些变更的版本级归纳，避免逐条照搬实现细节。
 - 每次重大改动（新增/调整/删除功能、接口或工具，影响用户可感知行为）完成后，都要在 `CHANGELOG.md` 的 `Unreleased` 追加一条记录，按 `[新增]` / `[调整]` / `[修复]` / `[优化]` 前缀分类，用一句中文归纳；纯内部重构、格式化、无用户可感知影响的小改动可不记。
-- 每次 todo 事项完成后，先从 `docs/content/docs/progress/todo.mdx` 移到 `docs/content/docs/progress/pending-test.mdx`，不要直接写进正式功能说明；用户确认测试通过后再更新 `docs/content/docs/overview/features.mdx`。
-- 每次任务完成前，都要根据实际变更检查并更新 `docs/content/docs/progress/todo.mdx` 和 `docs/content/docs/progress/pending-test.mdx`；如果功能或待办没有变化，也要确认无需修改。
+- 每次 todo 事项完成后，先从 `docs/content/docs/v1/progress/todo.mdx` 移到 `docs/content/docs/v1/progress/pending-test.mdx`，不要直接写进正式功能说明；用户确认测试通过后再更新 `docs/content/docs/v1/overview/features.mdx`。
+- 每次任务完成前，都要根据实际变更检查并更新 `docs/content/docs/v1/progress/todo.mdx` 和 `docs/content/docs/v1/progress/pending-test.mdx`；如果功能或待办没有变化，也要确认无需修改。
 - 文档不要写过期日期；除非用户明确要求记录具体时间。
 
 ## 发版本流程
