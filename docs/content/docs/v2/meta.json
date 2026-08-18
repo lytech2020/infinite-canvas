@@ -2,6 +2,7 @@
   "title": "V2",
   "defaultOpen": true,
   "pages": [
-    "requirements"
+    "requirements",
+    "organization-accounts"
   ]
 }

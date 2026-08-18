@@ -1,0 +1,116 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>FP-ORG-006 公司积分、额度与结算</title><script src="/vendor/mermaid.min.js"></script><style>body{margin:0;font:14px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif;color:#172033;background:#f6f8fb}header{padding:28px 5%;background:#10243d;color:white}main{max-width:1220px;margin:20px auto;padding:28px;background:white}nav{columns:4;padding:12px;background:#eef3f8}nav a{display:block;color:#1f5f99}section{margin:30px 0}h2{border-bottom:2px solid #d9e1ec;padding-bottom:7px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #d9e1ec;padding:8px;text-align:left;vertical-align:top}th{background:#eef3f8}.diagram{overflow:auto;border:1px solid #d9e1ec;padding:12px}.ok{color:#19735a}.assume{color:#9a5b00}.open{color:#b42318}.note{border-left:4px solid #1f5f99;background:#f0f6ff;padding:10px}code{background:#eef3f8;padding:2px 4px}@media print{body{background:white}main{margin:0;max-width:none}nav{display:none}}</style></head><body>
+<header><h1>FP-ORG-006 公司积分、额度与结算</h1><p>公司统一积分账户 + 公司周期上限 + 成员消费上限 + 预占/结算/释放</p></header><main><nav><a href="#s1">1 文档信息</a><a href="#s2">2 输入</a><a href="#s3">3 影响</a><a href="#s4">4 方针</a><a href="#s5">5 流程</a><a href="#s6">6 画面</a><a href="#s7">7 项目</a><a href="#s8">8 迁移</a><a href="#s9">9 API</a><a href="#s10">10 DB</a><a href="#s11">11 权限</a><a href="#s12">12 校验</a><a href="#s13">13 日志</a><a href="#s14">14 外部</a><a href="#s15">15 数据迁移</a><a href="#s16">16 测试</a><a href="#s17">17 发布</a><a href="#s18">18 任务</a><a href="#s19">19 未决</a><a href="#s20">20 追踪</a></nav>
+<section id="s1"><h2>1. 文档信息</h2><p>状态：<b class="ok">确认済</b>。文本 Token、图片、视频和音频等底层用量统一换算为整数积分。</p><div class="note">成员没有可转移的钱包。成员上限只是允许消费公司积分的周期限制；真实余额始终属于公司。</div></section>
+<section id="s2"><h2>2. 功能点输入整理</h2><table><tr><th>项目</th><th>内容</th></tr><tr><td>Business Purpose</td><td>用统一积分管理不同模型成本，并允许公司按成员控制消费</td></tr><tr><td>New Behavior</td><td>余额调整、价格版本、影子计费、预占、实际结算、退款、公司及成员周期上限</td></tr><tr><td>计量</td><td>文本按输入/缓存/输出 Token；媒体按张数、秒数、分辨率、质量或字符数</td></tr><tr><td>Out of Scope</td><td>充值支付、发票、套餐购买、成员积分转赠、公司自定义价格</td></tr></table></section>
+<section id="s3"><h2>3. 既存影响分析</h2><div class="diagram"><pre class="mermaid">flowchart LR
+FP["FP-ORG-006"] --> Q["quota service 変更"]
+FP --> J["generation jobs 拡張"]
+FP --> U["usage records 拡張"]
+FP --> P["模型价格 追加"]
+FP --> A["积分账户/流水/预占 追加"]
+FP --> UI["积分画面 追加"]
+FP --> JOB["预占回收 Job 追加"]</pre></div><p>V2 目标结构删除 <code>daily_call_limit</code>，商业额度统一由积分和周期上限承担；登录尝试、生成频率和上传频率仍由既有安全限流控制。现有用户/模型并发逻辑改为模型、公司、成员三层。</p></section>
+<section id="s4"><h2>4. 最小修改方针</h2><ol><li>现有 ai_usage_records 继续记录原始用量；积分是其上层结算结果。</li><li>模型价格通过追加版本发布，不覆盖历史规则。</li><li>credit_accounts 保存事务余额快照，credit_ledger_entries 保存不可变事实。</li><li>生成网关在调用供应商前预占，在现有同进程任务完成处理路径中结算；不新增供应商 webhook，不修改供应商适配器核心协议。</li><li>影子计费、软限制和硬限制分别由系统级功能开关控制；模式在 reserve 时固化。</li></ol></section>
+<section id="s5"><h2>5. 处理流程详细设计</h2><div class="diagram"><pre class="mermaid">flowchart TD
+A["生成请求"] --> B["锁定模型行并读取唯一生效价格"]
+B --> C["按最大参数估算预占积分并锁定价格版本"]
+C --> D["事务锁定公司积分账户与成员行"]
+D --> D1{"模型全局/公司/成员并发均通过"}
+D1 -- 否 --> Q["返回对应并发错误"]
+D1 -- 是 --> E{"余额-预占是否足够"}
+E -- 否 --> X["余额不足"]
+E -- 是 --> F{"公司周期已结算+active预占+本次是否不超限"}
+F -- 否 --> Y["公司周期上限"]
+F -- 是 --> G{"成员周期已结算+active预占+本次是否不超限"}
+G -- 否 --> Z["成员周期上限"]
+G -- 是 --> H["创建任务和预占流水"]
+H --> I["供应商执行"]
+I --> J{"完成状态"}
+J -- 成功 --> K["按 reservation.pricingVersionId 与实际用量计算"]
+J -- 失败/取消 --> L["按同一价格快照内失败/取消策略计算"]
+K --> M["结算实际积分并释放差额"]
+L --> M
+M --> N["用量、价格快照、流水同事务落库"]</pre></div>
+<h3>计价公式</h3><pre><code>文本积分 = ceil(inputTokens × inputRate
+              + cachedTokens × cachedRate
+              + outputTokens × outputRate
+              + reasoningTokens × reasoningRate)
+
+图片积分 = count × price(model, size, quality)
+视频积分 = seconds × price(model, resolution, mode)
+音频积分 = seconds/characters × price(model, operation)
+
+实际结算 = max(0, 按价格快照计算的积分)
+释放积分 = max(0, 预占积分 - 实际结算)</code></pre>
+<p>全链路事务锁序必须统一为 <code>model → company account → member period row</code>。成员锁对象固定为当前 <code>user_id + period_start</code> 的 <code>member_period_limits</code> 行；即使成员“不限额”也保留 <code>credit_limit=NULL</code> 的占位行。事务在取得模型与公司账户锁后执行 <code>INSERT ... ON CONFLICT DO NOTHING</code> 确保占位行存在，再 <code>SELECT ... FOR UPDATE</code> 取得成员锁。改造时删除现有生成服务 <code>user → model</code> 的锁序，不锁 users 行，任何入口都不得保留反向获取路径；任务与预占在同一事务创建，失败时不得留下 active 预占。</p><p>预占必须覆盖已校验参数下的最大可计费值。若供应商实际用量异常超过预占，本次最多结算至预占额，记录 <code>PRICING_RESERVATION_MISMATCH</code>；阈值为同一 companyId+modelId 首次发生即暂停该公司该模型的 Hard 新任务并告警，其他公司和模型不受影响，全局暂停只能由平台管理员执行。平台承担差额，不产生负余额或隐藏债务。首期不做自动供应商重试，任何用户重试都生成新的 requestId、jobId 和预占；重复任务完成处理只返回原结算结果。</p></section>
+<section id="s6"><h2>6. 画面详细设计</h2><table><tr><th>画面</th><th>使用者</th><th>能力</th></tr><tr><td>SCR-FP-ORG-006-001 模型价格</td><td>平台管理员</td><td>草稿、样例试算、立即发布新版本；首期不支持未来定时生效</td></tr><tr><td>SCR-FP-ORG-006-002 公司积分</td><td>平台管理员</td><td>余额调整、周期上限、预占、流水、差异</td></tr><tr><td>SCR-FP-ORG-006-003 成员额度</td><td>公司管理员</td><td>成员月上限、普通并发、视频并发</td></tr><tr><td>SCR-FP-ORG-006-004 我的额度</td><td>成员</td><td>公司可用状态、本人本月已用与剩余、消费明细</td></tr></table></section>
+<section id="s7"><h2>7. 画面项目定义</h2><table><tr><th>ID</th><th>字段</th><th>规则</th></tr><tr><td>ITEM-006-001</td><td>积分余额</td><td>整数最小单位，只读汇总；可用余额 = balance_units - reserved_units</td></tr><tr><td>ITEM-006-002</td><td>调整数量</td><td>非 0 整数，正数发放，负数扣减；扣减后 balance 不得低于 reserved</td></tr><tr><td>ITEM-006-003</td><td>调整原因</td><td>必填，1～500 字</td></tr><tr><td>ITEM-006-004</td><td>公司月上限</td><td>正整数或不限；不改变余额</td></tr><tr><td>ITEM-006-005</td><td>成员月上限</td><td>正整数或不限；不限仍受公司限制</td></tr><tr><td>ITEM-006-006</td><td>价格生效时间</td><td>发布时立即生效并关闭上一版本；发布后不可修改</td></tr><tr><td>ITEM-006-007</td><td>计费模式</td><td>shadow / soft / hard，由平台控制</td></tr></table></section>
+<section id="s8"><h2>8. 画面迁移设计</h2><div class="diagram"><pre class="mermaid">stateDiagram-v2
+[*] --> CompanyCredits
+CompanyCredits --> Adjustment: 调整余额
+Adjustment --> CompanyCredits: 保存
+CompanyCredits --> LedgerDetail: 查看流水
+[*] --> PricingList
+PricingList --> PricingDraft: 新建版本
+PricingDraft --> PricingPreview: 试算
+PricingPreview --> PricingList: 发布
+[*] --> MemberLimits
+MemberLimits --> MemberLimits: 保存上限</pre></div></section>
+<section id="s9"><h2>9. API 详细设计</h2><table><tr><th>方法</th><th>路径</th><th>说明</th></tr><tr><td>GET/POST</td><td>/api/v1/admin/model-pricing</td><td>列表、创建草稿</td></tr><tr><td>POST</td><td>/api/v1/admin/model-pricing/{id}/preview</td><td>用样例用量试算</td></tr><tr><td>POST</td><td>/api/v1/admin/model-pricing/{id}/publish</td><td>发布不可变版本</td></tr><tr><td>GET</td><td>/api/v1/admin/companies/{id}/credits</td><td>余额、预占、周期和流水</td></tr><tr><td>POST</td><td>/api/v1/admin/companies/{id}/credit-adjustments</td><td>幂等调整</td></tr><tr><td>PUT</td><td>/api/v1/admin/companies/{id}/limits</td><td>公司周期与并发上限</td></tr><tr><td>PUT</td><td>/api/v1/company/members/{id}/limits</td><td>成员上限</td></tr><tr><td>GET</td><td>/api/v1/me/usage</td><td>成员本人额度与明细</td></tr></table>
+<div class="diagram"><pre class="mermaid">sequenceDiagram
+actor U as 成员
+participant API as 生成 API
+participant C as 积分服务
+participant DB as DB
+participant V as 供应商
+U->>API: 创建任务(requestId)
+API->>C: reserve(company,user,model,params)
+C->>DB: 按模型→公司账户→成员顺序加锁，检查三层并发和额度
+DB-->>C: reservation
+API->>V: 执行
+V-->>API: 结果+实际用量
+API->>C: settle(jobId, usage)
+C->>DB: 使用 reservation.pricingVersionId/mode 幂等结算
+C-->>API: settled</pre></div><p>幂等链固定为：客户端 requestId 在 userId 下唯一 → 创建唯一 jobId → reservation/settlement 均以 jobId 唯一 → 流水幂等键为 <code>{jobId}:reserve</code>、<code>{jobId}:settle</code>、<code>{jobId}:release</code>。退款和补偿请求均强制携带调用方生成的 <code>Idempotency-Key</code>：键分别为 <code>{jobId}:refund:{Idempotency-Key}</code>、<code>{jobId}:compensate:{Idempotency-Key}</code>，因此允许同一 job 分次退款或同原因多次合法补偿，只有重复提交同一个请求键才返回原结果。<code>POST /admin/companies/{id}/credit-adjustments</code> 同样必须携带该请求头，流水键为 <code>adjust:{companyId}:{Idempotency-Key}</code>。首期不在同一 job 内自动重试供应商。</p></section>
+<section id="s10"><h2>10. 数据库详细设计</h2><div class="diagram"><pre class="mermaid">erDiagram
+COMPANIES ||--|| CREDIT_ACCOUNTS : owns
+CREDIT_ACCOUNTS ||--o{ CREDIT_LEDGER_ENTRIES : records
+GENERATION_JOBS ||--o| CREDIT_RESERVATIONS : reserves
+GENERATION_JOBS ||--o| CREDIT_SETTLEMENTS : settles
+MODELS ||--o{ MODEL_PRICING_VERSIONS : prices
+USERS ||--o{ MEMBER_LIMITS : limits
+COMPANIES ||--o{ COMPANY_LIMITS : limits
+AI_USAGE_RECORDS ||--o| CREDIT_SETTLEMENTS : calculates</pre></div>
+<table><tr><th>表</th><th>关键字段与约束</th></tr><tr><td>credit_accounts</td><td>company_id UK, balance_units, reserved_units, version；均为非负整数</td></tr><tr><td>credit_ledger_entries</td><td>id, company_id, user_id, job_id, type, balance_delta, reserved_delta, balance_after, reserved_after, reason, actor_id, idempotency_key UK, mode, created_at；index(company_id,created_at)、index(user_id,created_at)、index(company_id,type,created_at)；首期以防篡改触发器拒绝正常 DML 的 UPDATE/DELETE，纠错只 INSERT。REVOKE 不作为首期安全控制；只有新增独立 migration owner 与最小权限 application DB role、分别使用迁移和运行时 DATABASE_URL 后，才对应用角色 REVOKE UPDATE/DELETE</td></tr><tr><td>credit_reservations</td><td>job_id UK, company_id, user_id, reserved_units, status(active/settled/released), pricing_version_id, pricing_snapshot, mode, expires_at；索引(company_id,status,created_at)、(user_id,status,created_at)、(status,expires_at)</td></tr><tr><td>credit_settlements</td><td>job_id UK, company_id, user_id, actual_units, usage_snapshot, pricing_snapshot, usage_source, settled_at；index(company_id,settled_at)、index(user_id,settled_at)；首期一 job 一次供应商尝试</td></tr><tr><td>model_pricing_versions</td><td>model_id, version, rule JSONB, effective_at, disabled_at, published_at；model_id+version UK；部分唯一索引保证每模型只有一个 disabled_at IS NULL 版本</td></tr><tr><td>company_period_limits</td><td>company_id, period_start, period=month, credit_limit；不保存并发</td></tr><tr><td>member_period_limits</td><td>user_id, period_start, period=month, credit_limit 可空；unique(user_id,period_start)，无限额成员也 upsert 占位行作为固定成员锁对象</td></tr><tr><td>companies（変更）</td><td>concurrency_limit, video_concurrency_limit</td></tr><tr><td>users（変更）</td><td>保留 concurrency_limit, video_concurrency_limit；删除 daily_call_limit</td></tr><tr><td>generation_jobs（変更）</td><td>company_id NOT NULL；索引(company_id,status)</td></tr></table>
+<h3>积分流水类型</h3><table><tr><th>type</th><th>balance_delta</th><th>reserved_delta</th><th>用途</th></tr><tr><td>grant</td><td>正</td><td>0</td><td>平台发放</td></tr><tr><td>deduct</td><td>负</td><td>0</td><td>平台人工扣减，不能低于已预占</td></tr><tr><td>reserve</td><td>0</td><td>正</td><td>创建任务预占</td></tr><tr><td>settle</td><td>负（实际积分）</td><td>负（全部预占）</td><td>成功或已确认计费的失败/取消</td></tr><tr><td>release</td><td>0</td><td>负</td><td>无费用失败、取消或安全回收</td></tr><tr><td>refund</td><td>正</td><td>0</td><td>已结算任务退款</td></tr><tr><td>compensate</td><td>正或负</td><td>0</td><td>平台纠错，原因必填</td></tr></table><p><code>balance_after</code> 和 <code>reserved_after</code> 均表示该事件事务提交后的账户快照。shadow 事件 type 相同但 mode=shadow，delta 均为 0，理论值保存在 reservation/settlement，不改变真实账户。</p>
+<h3>用量与价格字段契约</h3><table><tr><th>能力</th><th>usage_snapshot 必填字段</th><th>pricing rule 覆盖字段</th></tr><tr><td>text</td><td>inputTokens, cachedTokens, outputTokens, reasoningTokens</td><td>inputRate, cachedRate, outputRate, reasoningRate</td></tr><tr><td>image</td><td>images, size, quality</td><td>size × quality 的全部 paramSchema 组合</td></tr><tr><td>video</td><td>videoSeconds, resolution, mode</td><td>resolution × mode 的全部 paramSchema 组合及秒单价</td></tr><tr><td>audio</td><td>audioSeconds 或 characters, operation</td><td>operation 对应秒价或字符价</td></tr></table><p>实现时为每种 capability 提供 Zod schema。价格发布前必须验证 rule 覆盖该模型 param_schema 的全部允许组合。Hard 周期已用公式写死为：周期窗口内 <code>mode=hard</code> 的 credit_settlements.actual_units 之和 + 当前 <code>mode=hard AND status=active</code> 的 credit_reservations.reserved_units 之和；公司与成员分别按 company_id/user_id 聚合。Shadow/Soft 单独分栏展示，不进入 Hard 额度。聚合优先利用 settlements 的 company_id/user_id + settled_at 与 reservations 的 company_id/user_id + status + created_at 索引，不扫描全量流水。首期统一沿用全局 <code>QUOTA_TIMEZONE</code>，不清零余额、不运行周期重置 Job。</p><p>计费模式在 reserve 时写入 <code>credit_reservations.mode</code>，settle、release、refund 和与任务关联的 compensate 一律读取该 reservation 的模式及价格版本；平台模式切换只影响切换后新建的 reservation，在途任务不得读取当前全局模式。无任务的管理员 adjustment 使用独立 Idempotency-Key，并按正式账户调整记录。</p></section>
+<section id="s11"><h2>11. 权限 / 角色 / 数据范围设计</h2><div class="diagram"><pre class="mermaid">flowchart TD
+A["积分操作"] --> B{"操作类型"}
+B -- 余额/价格/公司上限 --> C{"平台管理员"}
+C -- 否 --> X["403"]
+C -- 是 --> P["允许并审计"]
+B -- 成员上限 --> D{"本公司管理员"}
+D -- 否 --> X
+D -- 是 --> E["仅本公司成员"]
+B -- 查看本人 --> F["仅本人明细"]</pre></div><p>公司管理员不能增加余额、修改价格、修改公司总上限或删除流水，也不能修改自己的额度、并发或模型授权；公司管理员只能设置普通成员。成员不能查看其他成员消费。</p></section>
+<section id="s12"><h2>12. 校验 / 错误处理设计</h2><table><tr><th>ID</th><th>条件</th><th>处理</th></tr><tr><td>VAL-FP-ORG-006-001</td><td>余额不足以覆盖预占</td><td>COMPANY_CREDIT_INSUFFICIENT</td></tr><tr><td>VAL-FP-ORG-006-002</td><td>公司月剩余额度不足</td><td>COMPANY_PERIOD_LIMIT</td></tr><tr><td>VAL-FP-ORG-006-003</td><td>成员月剩余额度不足；口径含 active 预占</td><td>MEMBER_PERIOD_LIMIT</td></tr><tr><td>VAL-FP-ORG-006-004</td><td>结算跨价格发布时间</td><td>继续使用 reservation.pricing_version_id；即使版本已 disabled 也不报错</td></tr><tr><td>VAL-FP-ORG-006-005</td><td>运行时完全无价格</td><td>MODEL_PRICE_UNAVAILABLE；价格重叠在发布时阻止</td></tr><tr><td>VAL-FP-ORG-006-006</td><td>模型全局并发耗尽</td><td>所有模式均返回 SERVICE_BUSY，details.scope=model</td></tr><tr><td>VAL-FP-ORG-006-007</td><td>公司并发耗尽</td><td>Shadow/Soft 记录告警但不拒绝；Hard 返回 COMPANY_CONCURRENCY_LIMIT</td></tr><tr><td>VAL-FP-ORG-006-008</td><td>成员并发耗尽</td><td>Shadow/Soft 记录告警但不拒绝；Hard 返回 MEMBER_CONCURRENCY_LIMIT</td></tr><tr><td>VAL-FP-ORG-006-009</td><td>重复 reserve/完成处理</td><td>按 jobId 返回原结果，不重复扣分</td></tr><tr><td>VAL-FP-ORG-006-010</td><td>实际用量异常超过最大预占</td><td>最多结算预占额；同一 companyId+modelId 第 1 次即暂停该公司该模型 Hard 并告警，不影响其他公司</td></tr></table><p>三层并发错误 details 均返回 capability、limit 和 scope，不暴露其他公司当前任务数。既有通用 <code>CONCURRENCY_LIMIT</code> 在 V2 废弃，HTTP 映射和中日文 i18n 改为上述三个稳定错误码。</p></section>
+<section id="s13"><h2>13. 日志 / 监查 / 运用设计</h2><ul><li>余额调整、价格草稿/发布、上限修改、预占、结算、释放、退款、补偿全部留痕。</li><li>余额等式：期末 balance = 期初 balance + grant/deduct/settle/refund/compensate 的 balance_delta。</li><li>预占等式：期末 reserved = active reservations 汇总 = reserve/settle/release 的 reserved_delta 累计。</li><li>任一等式不一致立即停止受影响公司的 Hard 新任务、保留现场并通知平台管理员；只允许追加纠错流水。</li><li>超预占暂停由平台管理员在 SCR-FP-ORG-007-005 运维健康页处理。恢复前必须修正或发布价格规则、完成该 companyId+modelId 的账户/预占/结算核对，并通过 Shadow 样例试算；只有平台管理员可执行“恢复 Hard”，必须填写原因并记录暂停事件、证据、操作者和恢复审计。未通过核对不得恢复。</li><li>价格发布前使用构造的 capability × 参数组合样例矩阵试算，不依赖尚不存在的历史成本数据。</li></ul></section>
+<section id="s14"><h2>14. 外部接口 / 文件 / 批处理 / 通知</h2><table><tr><th>对象</th><th>设计</th></tr><tr><td>供应商用量</td><td>优先 provider；estimated 可用于 Hard，但必须在成员/公司明细标注来源且最多结算预占额</td></tr><tr><td>失败/取消</td><td>供应商返回实际用量则按实际结算；前置失败、未提交供应商或用量未知时全部释放，由平台承担未知成本</td></tr><tr><td>预占回收 Job</td><td>TTL ≥ 对应 capability 供应商超时 × 2；且只释放确认无活动任务或终态任务的预占。应用启动期 stale job 清理也必须同事务释放其 active reservation</td></tr><tr><td>核对 Job</td><td>账户、流水、预占、结算每日一致性检查；不设置周期重置 Job</td></tr><tr><td>预警</td><td>余额或周期用量达到 80%、100%；首期站内展示</td></tr><tr><td>CSV</td><td>同步导出积分流水和底层用量，限制时间窗口和行数，不含密钥和提示词</td></tr></table></section>
+<section id="s15"><h2>15. 数据迁移 / 初期数据 / 兼容性</h2><ol><li>项目未上线，由 seed 为公司创建 0 余额账户和首个价格版本，不回填旧额度。</li><li>V2 直接删除 dailyCallLimit；安全频率限制继续保留。</li><li>Shadow 完整走加锁、并发计算、reserve、settle、release 路径，mode=shadow 且账户 delta 为 0；模型全局容量仍可拒绝，公司/成员商业上限只记录不拒绝。</li><li>Soft 使用同一路径，公司/成员商业上限显示预警但不拒绝；模型全局容量仍可拒绝。</li><li>Hard 才改变真实 balance/reserved，并对公司/成员积分及并发限制执行拒绝。</li><li>任何模式切换只影响新 reservation，在途任务始终以 reservation.mode 完成。</li></ol></section>
+<section id="s16"><h2>16. 测试设计观点</h2><table><tr><th>类型</th><th>场景</th></tr><tr><td>TEST-FP-ORG-006-001 计价</td><td>文本四类 Token；图片尺寸/质量；视频秒数/分辨率；音频；Zod 契约和向上取整</td></tr><tr><td>TEST-FP-ORG-006-002 并发</td><td>删除旧 user→model 锁后全入口统一 model→company account→member_period_limits；无限额成员并发 upsert 占位行；构造旧锁序共存场景验证无死锁</td></tr><tr><td>TEST-FP-ORG-006-003 周期</td><td>Hard settlements + Hard active reservations 防止并发穿透；Shadow/Soft 排除；索引执行计划；全局 QUOTA_TIMEZONE 月边界</td></tr><tr><td>TEST-FP-ORG-006-004 价格</td><td>预占跨越价格发布时刻，结算仍使用锁定版本</td></tr><tr><td>TEST-FP-ORG-006-005 幂等</td><td>重复 requestId/完成处理/相同 Idempotency-Key 返回原结果；不同键支持分次 refund/同原因多次 compensate；用户重试创建新 job</td></tr><tr><td>TEST-FP-ORG-006-006 失败</td><td>前置失败、已计费失败、取消、未知用量、平台补偿、启动期 stale 清理释放</td></tr><tr><td>TEST-FP-ORG-006-007 模式与对账</td><td>Shadow→Soft→Hard 与反向切换时，在途任务以 reservation.mode 结算；余额/预占等式；暂停后仅平台管理员在核对与 Shadow 试算通过后可审计恢复</td></tr><tr><td>TEST-FP-ORG-006-008 归档</td><td>成员归档后 queued 释放、running 依任务结果结算</td></tr></table></section>
+<section id="s17"><h2>17. 发布 / 回滚 / 影响确认</h2><div class="diagram"><pre class="mermaid">flowchart TD
+A["部署计量/价格/流水"] --> B["Shadow"]
+B --> C["样例矩阵与影子流量误差分析"]
+C --> D{"价格可接受"}
+D -- 否 --> E["发布新价格版本继续 Shadow"]
+D -- 是 --> F["Soft 预警"]
+F --> G{"运营验收"}
+G -- 否 --> B
+G -- 是 --> H["Hard 小范围公司"]
+H --> I{"结算稳定"}
+I -- 否 --> R["关闭 Hard，保留用量与流水"]
+I -- 是 --> J["逐公司启用"]</pre></div><p>关闭 hard 不回滚或删除已经完成的正式结算；纠错追加补偿流水。禁止直接回写账户余额。</p></section>
+<section id="s18"><h2>18. 开发任务拆分</h2><ol><li>TASK-006-001 价格规则 schema、试算和版本发布。</li><li>TASK-006-002 公司账户、防篡改触发器、索引和管理员幂等调整；独立应用 DB 角色与双 DATABASE_URL 作为后续部署增强，不阻塞首期。</li><li>TASK-006-003 删除生成服务现有 user→model 锁序，全链路统一 model→company account→member_period_limits；无限额成员先 upsert 占位行再锁，并实现公司/成员周期上限与并发校验。</li><li>TASK-006-004 预占、结算、释放、分次退款、补偿和模式快照幂等事务。</li><li>TASK-006-005 供应商用量标准化与估算规则。</li><li>TASK-006-006 三类积分页面和导出。</li><li>TASK-006-007 回收、启动期 stale 释放、核对、暂停/恢复审计、告警和阶段功能开关。</li><li>TASK-006-008 删除既有 CONCURRENCY_LIMIT，补三层稳定错误码及中日文映射。</li></ol></section>
+<section id="s19"><h2>19. 未决事项与风险</h2><table><tr><th>ID</th><th>阶段</th><th>事项</th><th>处理</th></tr><tr><td>OPEN-006-001</td><td>Shadow 前</td><td>界面 1 积分对应多少内部单位</td><td class="open">存储始终用整数最小单位</td></tr><tr><td>OPEN-006-002</td><td>Shadow 前</td><td>各模型首版价格</td><td class="open">通过样例矩阵与影子流量确定</td></tr><tr><td>OPEN-006-003</td><td>Hard 前</td><td>estimated 用量是否采用折扣</td><td class="open">当前默认同价并明确标注，最多结算预占额</td></tr><tr><td>OPEN-006-004</td><td>以后</td><td>按公司配置周期时区</td><td class="assume">首期统一全局 QUOTA_TIMEZONE</td></tr></table><p>失败和取消规则已确定：有供应商实际用量则结算实际值；用量未知则释放全部预占。异常超预占由平台承担，并在阈值 1 次时只暂停该 companyId+modelId 的 Hard，不设置 uncovered_units。</p></section>
+<section id="s20"><h2>20. 追踪矩阵</h2><table><tr><th>需求</th><th>设计对象</th><th>验证</th></tr><tr><td>公司真实余额</td><td>credit_accounts + ledger</td><td>余额一致性与并发</td></tr><tr><td>成员只有消费上限</td><td>member_limits</td><td>无成员转账/钱包</td></tr><tr><td>多模态统一积分</td><td>pricing versions + usage snapshot</td><td>计价矩阵</td></tr><tr><td>预占结算</td><td>reservations + settlements</td><td>成功/失败/重试</td></tr><tr><td>分阶段启用</td><td>shadow/soft/hard flags</td><td>阶段发布与回滚</td></tr></table></section>
+</main><script>mermaid.initialize({startOnLoad:true,securityLevel:"loose"})</script></body></html>

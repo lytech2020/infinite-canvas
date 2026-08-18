@@ -1,0 +1,81 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>FP-ORG-007 用量、审计、初始化与运维</title><script src="/vendor/mermaid.min.js"></script><style>body{margin:0;font:14px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif;color:#172033;background:#f6f8fb}header{padding:28px 5%;background:#10243d;color:white}main{max-width:1180px;margin:20px auto;padding:28px;background:white}nav{columns:4;padding:12px;background:#eef3f8}nav a{display:block;color:#1f5f99}section{margin:30px 0}h2{border-bottom:2px solid #d9e1ec;padding-bottom:7px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #d9e1ec;padding:8px;text-align:left;vertical-align:top}th{background:#eef3f8}.diagram{overflow:auto;border:1px solid #d9e1ec;padding:12px}.ok{color:#19735a}.assume{color:#9a5b00}.open{color:#b42318}code{background:#eef3f8;padding:2px 4px}@media print{body{background:white}main{margin:0;max-width:none}nav{display:none}}</style></head><body>
+<header><h1>FP-ORG-007 用量、审计、初始化与运维</h1><p>平台、公司、成员三级可见范围；敏感内容访问强审计；分阶段安全上线</p></header><main><nav><a href="#s1">1 文档信息</a><a href="#s2">2 输入</a><a href="#s3">3 影响</a><a href="#s4">4 方针</a><a href="#s5">5 流程</a><a href="#s6">6 画面</a><a href="#s7">7 项目</a><a href="#s8">8 迁移</a><a href="#s9">9 API</a><a href="#s10">10 DB</a><a href="#s11">11 权限</a><a href="#s12">12 校验</a><a href="#s13">13 日志</a><a href="#s14">14 外部</a><a href="#s15">15 数据迁移</a><a href="#s16">16 测试</a><a href="#s17">17 发布</a><a href="#s18">18 任务</a><a href="#s19">19 未决</a><a href="#s20">20 追踪</a></nav>
+<section id="s1"><h2>1. 文档信息</h2><p>状态：<b class="ok">确认済</b>。公司管理员可以查看本公司成员项目、提示词和生成内容，但每次敏感内容访问都必须审计。</p></section>
+<section id="s2"><h2>2. 功能点输入整理</h2><table><tr><th>目的</th><td>让不同角色了解余额、额度和使用情况，同时支持安全运营与问题追踪</td></tr><tr><th>新行为</th><td>三级用量看板、积分流水、成员排行、敏感内容审计、seed 初始化、运维告警</td></tr><tr><th>范围外</th><td>财务成本、发票、自动账单、提示词批量导出、跨公司对比向公司端开放</td></tr></table></section>
+<section id="s3"><h2>3. 既存影响分析</h2><div class="diagram"><pre class="mermaid">flowchart LR
+FP["FP-ORG-007"] --> O["admin overview 拡張"]
+FP --> U["usage queries 変更"]
+FP --> P["prompt review 拡張"]
+FP --> A["audit logs 拡張"]
+FP --> CSV["导出 拡張"]
+FP --> OPS["监控/Job 追加"]
+FP --> SEED["seed 初始化 拡張"]</pre></div><table><tr><th>既有接口</th><th>V2 处理</th></tr><tr><td>GET /admin/overview</td><td>增加公司维度与积分摘要</td></tr><tr><td>GET/POST /admin/users</td><td>增加 companyId 筛选/必填；公司管理员任免由平台端处理</td></tr><tr><td>PATCH /admin/users/{id}/status</td><td>使用 active/disabled/archived 三态</td></tr><tr><td>PATCH /admin/users/{id}/limits</td><td>废弃 dailyCallLimit；改为并发与周期积分上限服务</td></tr><tr><td>GET /admin/users/{id}/projects</td><td>增加 companyId 范围与归档标识</td></tr><tr><td>GET /admin/usage、export.csv</td><td>增加 companyId/积分字段；继续同步受限导出</td></tr><tr><td>GET /admin/prompts</td><td>平台范围不变；公司内容审查复用审计实现但使用公司范围</td></tr><tr><td>GET /admin/audit-logs</td><td>增加公司、目标成员与操作人角色筛选</td></tr><tr><td>GET/PATCH /admin/settings</td><td>删除 registration_open；增加 credit_mode</td></tr></table></section>
+<section id="s4"><h2>4. 最小修改方针</h2><p>继续复用 generation_jobs、ai_usage_records 和 admin_audit_logs，增加 companyId、价格/积分摘要和公司角色审计字段。报表通过统一数据范围构造器生成，避免各页面自行拼接租户条件。</p></section>
+<section id="s5"><h2>5. 处理流程详细设计</h2><div class="diagram"><pre class="mermaid">flowchart TD
+A["用户打开用量/内容"] --> B["解析平台/公司/成员角色"]
+B --> C["构造数据范围"]
+C --> D{"是否查看敏感正文或媒体"}
+D -- 否 --> E["查询聚合/脱敏明细"]
+D -- 是 --> F["校验公司管理员或平台权限"]
+F --> G["先写访问审计"]
+G --> H{"审计成功"}
+H -- 否 --> X["拒绝展示"]
+H -- 是 --> I["读取敏感内容"]
+E --> J["返回"]
+I --> J</pre></div></section>
+<section id="s6"><h2>6. 画面详细设计</h2><table><tr><th>画面</th><th>内容</th></tr><tr><td>SCR-FP-ORG-007-001 平台用量</td><td>公司、模型、能力、Provider、成员、状态和积分；首期不展示供应商成本</td></tr><tr><td>SCR-FP-ORG-007-002 公司用量</td><td>余额、预占、本月已用、成员排行、模型分布、失败率</td></tr><tr><td>SCR-FP-ORG-007-003 我的用量</td><td>本人上限、已用、剩余、任务和积分明细</td></tr><tr><td>SCR-FP-ORG-003-001 公司内容审查</td><td>复用 FP-ORG-003 页面，不新增第二套敏感内容页面</td></tr><tr><td>SCR-FP-ORG-007-005 运维健康</td><td>预占积压、结算失败、价格缺失、跨租户拒绝及 companyId+modelId Hard 暂停；仅平台管理员在修正规则、核对和 Shadow 试算通过后填写原因恢复，动作强审计</td></tr></table></section>
+<section id="s7"><h2>7. 画面项目定义</h2><table><tr><th>字段</th><th>规则</th></tr><tr><td>统计周期</td><td>明确展示时区和起止时间</td></tr><tr><td>积分</td><td>已结算、预占、退款、调整分别展示</td></tr><tr><td>底层用量</td><td>Token、图片张数、视频秒数、音频秒数及 provider/estimated 来源</td></tr><tr><td>成员</td><td>归档成员保留并标记，不合并到其他成员</td></tr><tr><td>敏感查看原因</td><td>必填，受控枚举 + 可选补充</td></tr></table></section>
+<section id="s8"><h2>8. 画面迁移设计</h2><div class="diagram"><pre class="mermaid">stateDiagram-v2
+[*] --> UsageOverview
+UsageOverview --> MemberUsage: 选择成员
+MemberUsage --> JobDetail: 查看任务
+JobDetail --> SensitiveConfirm: 打开提示词/结果
+SensitiveConfirm --> JobDetail: 审计后展示
+UsageOverview --> Ledger: 积分流水
+UsageOverview --> Export: 导出非敏感 CSV</pre></div></section>
+<section id="s9"><h2>9. API 详细设计</h2><table><tr><th>方法</th><th>路径</th><th>数据范围</th></tr><tr><td>GET</td><td>/api/v1/admin/usage</td><td>平台全量，支持 companyId</td></tr><tr><td>GET</td><td>/api/v1/company/usage</td><td>当前公司</td></tr><tr><td>GET</td><td>/api/v1/company/usage/members/{id}</td><td>当前公司普通成员</td></tr><tr><td>GET</td><td>/api/v1/me/usage</td><td>当前成员</td></tr><tr><td>POST</td><td>/api/v1/company/content/{type}/{id}/media-token</td><td>内联审计后签发 TTL≤60 秒的一次性兑换 token；兑换后使用 FP-ORG-003 定义的同会话 Range 流窗口</td></tr><tr><td>GET</td><td>/api/v1/company/usage/export.csv</td><td>同步导出当前公司非敏感字段并写审计</td></tr></table><div class="diagram"><pre class="mermaid">sequenceDiagram
+actor A as 公司管理员
+participant UI as 用量页面
+participant API as Company Usage API
+participant Scope as 数据范围服务
+participant DB as DB
+A->>UI: 查询成员用量
+UI->>API: filters
+API->>Scope: current company + role
+Scope-->>API: scoped query
+API->>DB: 聚合 usage/credits
+DB-->>API: result
+API-->>UI: summary/items</pre></div></section>
+<section id="s10"><h2>10. 数据库详细设计</h2><div class="diagram"><pre class="mermaid">erDiagram
+COMPANIES ||--o{ GENERATION_JOBS : owns
+USERS ||--o{ GENERATION_JOBS : submits
+GENERATION_JOBS ||--o| AI_USAGE_RECORDS : measures
+GENERATION_JOBS ||--o| CREDIT_SETTLEMENTS : charges
+COMPANIES ||--o{ CREDIT_LEDGER_ENTRIES : owns
+USERS ||--o{ AUDIT_LOGS : acts
+COMPANIES ||--o{ AUDIT_LOGS : scopes</pre></div><table><tr><th>ID</th><th>对象</th><th>设计</th></tr><tr><td>DB-FP-ORG-007-001</td><td>ai_usage_records / generation_jobs / credit_ledger_entries</td><td>增加公司与时间索引，报表保存必要展示快照但不以快照授权</td></tr><tr><td>DB-FP-ORG-007-002</td><td>admin_audit_logs</td><td>扩展 company_id、actor_role、target_user_id、reason、ip、session_id；index(company_id,created_at)</td></tr></table><p>公司管理员只能查看 company_id=当前公司的公司级审计，永远看不到平台管理员的跨公司或平台配置审计。</p></section>
+<section id="s11"><h2>11. 权限 / 角色 / 数据范围设计</h2><div class="diagram"><pre class="mermaid">flowchart TD
+A["报表/内容请求"] --> B{"平台管理员"}
+B -- 是 --> P["全平台"]
+B -- 否 --> C{"公司管理员"}
+C -- 是 --> D["本公司全部成员"]
+C -- 否 --> E["仅本人"]
+D --> F{"敏感内容"}
+F -- 是 --> G["强审计"]
+F -- 否 --> H["聚合/明细"]</pre></div><table><tr><th>ID</th><th>规则</th></tr><tr><td>PERM-FP-ORG-007-001</td><td>平台管理员可查看全平台及按公司过滤的用量</td></tr><tr><td>PERM-FP-ORG-007-002</td><td>公司管理员仅本公司，成员仅本人；敏感正文使用 FP-ORG-003 强审计</td></tr><tr><td>PERM-FP-ORG-007-003</td><td>公司 CSV 仅公司管理员可导出，服务端固化当前公司、限制时间窗/行数、排除敏感正文，并记录导出审计</td></tr></table><p>公司管理员可以查看本公司内容，但不能查看供应商 Key、平台内部成本配置、其他公司信息或平台管理员审计详情。</p></section>
+<section id="s12"><h2>12. 校验 / 错误处理设计</h2><table><tr><th>条件</th><th>处理</th></tr><tr><td>目标成员非本公司</td><td>既有 NOT_FOUND 404</td></tr><tr><td>敏感访问未提供原因</td><td>400 ACCESS_REASON_REQUIRED</td></tr><tr><td>审计写入失败</td><td>503 AUDIT_WRITE_FAILED，不展示内容或签发媒体兑换 token</td></tr><tr><td>同步导出范围过大</td><td>限制时间窗口和行数，返回 EXPORT_RANGE_TOO_LARGE</td></tr><tr><td>统计数据延迟</td><td>返回 generatedAt 和数据新鲜度；provider/estimated 明确标记</td></tr></table></section>
+<section id="s13"><h2>13. 日志 / 监查 / 运用设计</h2><table><tr><th>监控项</th><th>首期告警条件与渠道</th></tr><tr><td>预占超时</td><td>任意 active 预占超过 capability TTL 且任务非活动；平台错误日志 + 运维健康页</td></tr><tr><td>结算失败</td><td>任一结算最终失败；立即停止该公司 Hard 并平台告警</td></tr><tr><td>价格缺失</td><td>已授权模型无唯一生效价格；阻止 Hard 并平台告警</td></tr><tr><td>租户越权</td><td>同一会话 5 分钟内 5 次跨公司资源访问；安全告警</td></tr><tr><td>敏感审计异常</td><td>内容审查接口访问日志数与成功审计数按小时不一致；安全告警</td></tr><tr><td>账号冒充风险</td><td>同一 IP/设备 10 分钟内登录 3 个以上成员账号；平台安全告警</td></tr></table></section>
+<section id="s14"><h2>14. 外部接口 / 文件 / 批处理 / 通知</h2><ul><li>每日账户一致性核对和预占回收沿用 V1 临时上传清理方式，在单副本 API 进程定时器内运行，不引入 Redis 或队列；多副本部署前必须改为带分布式锁的独立 worker。</li><li>应用启动期既有 stale queued/running job 清理必须调用积分服务，在同一事务将任务置终态并 release 对应 active reservation；不得只改 job 状态。定时 TTL 回收仍作为兜底。</li><li>余额和周期用量 80%/100% 站内预警；通知渠道后续可扩展邮件。</li><li>CSV 首期同步导出，限制时间窗口和行数，固化当前公司范围并写导出审计；不提供敏感内容批量导出。</li><li>canvas-agent 是用户本地进程，只与浏览器通过本地 connect token 通信，不直接访问云端后端。Agent 线程由 Web 端写入既有 <code>/api/v1/user-data</code> 的 <code>agent_chat</code> 命名空间，附件写入 <code>/api/v1/uploads</code>；公司边界复用 FP-ORG-003 的 user_data 复合主键和 uploads 复合归属。云端接口忽略请求体中的任何 companyId，只从 Web 会话解析。</li></ul></section>
+<section id="s15"><h2>15. 数据迁移 / 初期数据 / 兼容性</h2><ol><li>项目未上线，不回填业务数据；按新 schema 重建开发和测试数据。</li><li>seed 创建平台管理员、公司、公司管理员和普通成员。</li><li>seed 初始化公司模型授权、供应商渠道绑定、唯一生效价格版本和 0 余额积分账户。</li><li>不生成个人用户、不保留个人用户运行分支。</li></ol></section>
+<section id="s16"><h2>16. 测试设计观点</h2><ul><li>TEST-FP-ORG-007-001：平台、公司管理员、成员三类角色统计范围。</li><li>TEST-FP-ORG-007-002：归档成员在历史报表中的保留和标识。</li><li>TEST-FP-ORG-007-003：提示词、项目和媒体查看的内联审计原子性、兑换 token、Range 流窗口、过期和重放。</li><li>TEST-FP-ORG-007-004：同步导出范围、字段脱敏、行数限制和导出审计。</li><li>TEST-FP-ORG-007-005：seed 结果不存在 companyId 为空的普通用户。</li><li>TEST-FP-ORG-007-006：本地 canvas-agent 不发起云端调用；伪造 companyId 的 user-data/uploads 请求不能跨公司读写 <code>agent_chat:*</code> key 或 Agent 附件。</li><li>TEST-FP-ORG-007-007：启动期 stale job 清理同事务释放预占；流水、用量与页面聚合对账。</li></ul></section>
+<section id="s17"><h2>17. 发布 / 回滚 / 影响确认</h2><div class="diagram"><pre class="mermaid">flowchart TD
+A["按新 schema 建表"] --> B["seed 初始化"] --> C["隔离/权限 Smoke Test"] --> D{"通过"}
+D -- 否 --> R["修正 schema/seed 后重建测试数据"]
+D -- 是 --> E["上线三级报表"] --> F["开启敏感访问审计"] --> G["Shadow 计费"] --> H["Soft"] --> I["Hard"]
+I --> J{"异常"}
+J -- 是 --> K["关闭 Hard，保留审计/用量"]
+J -- 否 --> L["完成"]</pre></div></section>
+<section id="s18"><h2>18. 开发任务拆分</h2><p>TASK-007-001 统一数据范围；002 三级用量 API/页面；003 复用 FP-003 内联敏感审计；004 同步导出审计；005 seed；006 监控、告警、核对 Job；007 对 Web 端 <code>agent_chat</code> user_data 与 Agent uploads 做公司归属回归，不为本地 canvas-agent 新增云端调用层；008 发布运行手册；009 从 env、seed、auth service、HTTP 错误映射、<code>/auth/me</code> 类型、admin users“今日调用”卡片、admin catalog 注册开关和中日文 i18n 删除 <code>REGISTRATION_OPEN</code>、<code>DEFAULT_DAILY_CALL_LIMIT</code>、<code>dailyCallLimit</code>、<code>quotaUsage.dailyCalls</code>、<code>DAILY_CALL_LIMIT</code>；010 点名改造现有 <code>releaseStaleJobs()</code>：从 <code>updateMany + 循环记录用量</code> 拆为逐任务事务，逐条完成 job 终态、用量和 reservation release；单条失败记录告警并继续处理其他任务，保留启动不阻塞语义。</p></section>
+<section id="s19"><h2>19. 未决事项与风险</h2><table><tr><th>ID</th><th>事项</th><th>状态</th></tr><tr><td>OPEN-007-001</td><td>历史业务和审计保留期限</td><td class="open">未决</td></tr><tr><td>OPEN-007-002</td><td>余额预警是否发送邮件</td><td class="assume">首期仅站内</td></tr></table><p>敏感访问原因已确认：quality_review、compliance_review、support_troubleshooting、employee_offboarding、security_investigation、other；other 必须填写补充说明。</p></section>
+<section id="s20"><h2>20. 追踪矩阵</h2><table><tr><th>需求</th><th>对象</th><th>测试</th></tr><tr><td>三级用量</td><td>DB-FP-ORG-007-001 / PERM-FP-ORG-007-001～002</td><td>TEST-FP-ORG-007-001/002</td></tr><tr><td>敏感内容可查看</td><td>FP-ORG-003 内联审计 + media exchange/stream</td><td>TEST-FP-ORG-007-003</td></tr><tr><td>同步导出</td><td>PERM-FP-ORG-007-003</td><td>TEST-FP-ORG-007-004</td></tr><tr><td>安全上线</td><td>seed + shadow/soft/hard</td><td>TEST-FP-ORG-007-005/007</td></tr><tr><td>Agent 租户</td><td>Web user_data(agent_chat) + uploads 会话公司范围</td><td>TEST-FP-ORG-007-006</td></tr></table></section>
+</main><script>mermaid.initialize({startOnLoad:true,securityLevel:"loose"})</script></body></html>

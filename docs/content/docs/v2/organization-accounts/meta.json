@@ -1,0 +1,9 @@
+{
+  "title": "组织账号与积分",
+  "defaultOpen": true,
+  "pages": [
+    "acceptance",
+    "frontend-plan",
+    "regression-checklist"
+  ]
+}

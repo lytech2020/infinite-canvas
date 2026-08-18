@@ -1,0 +1,94 @@
+---
+title: 组织账号改造 V1 回归清单
+description: 组织账号和积分体系实施后必须回归的既有功能
+---
+
+# 组织账号改造 V1 回归清单
+
+本清单用于防止 companyId、模型授权和积分预占改造破坏现有云端功能。进入开发后，每完成一个 Feature Point 都应执行对应范围；本页不表示功能已经实现。
+
+## 认证与会话
+
+- [ ] 平台管理员登录、退出、修改密码和其他设备会话撤销保持正常。
+- [ ] 公司成员登录恢复能正确返回公司与角色。
+- [ ] disabled、archived、company disabled 的错误优先级符合总体设计。
+- [ ] 退出、切号和跨标签页会话变化会清空项目、素材、工作台历史、插件、提示词源、模型、额度和 Agent 缓存。
+- [ ] 登录/改密尝试频率限制保持有效。
+
+## 画布项目与云端保存
+
+- [ ] 项目创建、读取、重命名、版本冲突和软删除按 companyId + userId 隔离。
+- [ ] 退出前跨标签页协同保存不发生跨账号或跨公司写入。
+- [ ] 未登录本地画布不获得云端公司能力。
+- [ ] WebDAV 显式操作不被组织账号数据范围误拦截。
+
+## user_data 业务数据
+
+- [ ] 我的素材读写、删除和容量统计保持正常。
+- [ ] 图片/视频工作台历史集合原子更新保持正常。
+- [ ] 插件安装状态按成员保存，不能跨公司读取。
+- [ ] 提示词源配置按成员保存，公共提示词源浏览器直连规则不变。
+- [ ] user_data 集合溢出清理不会误删其他成员或公司的 upload_references。
+
+## Agent
+
+- [ ] threadId、turnId、itemId 归属和历史/实时事件去重保持正常。
+- [ ] Agent 附件按 companyId + userId 校验。
+- [ ] canvas-agent 本地进程不直接访问云端后端；浏览器保存 `agent_chat:*` user_data 和 Agent 附件时，伪造请求体 companyId 不能跨公司读写。
+- [ ] 归档或停用账号后 Agent 会话不可继续写入，历史仍可由授权管理员审查。
+
+## 上传与对象存储
+
+- [ ] 预签名上传绑定 Content-Type、Content-Length、companyId 和 userId。
+- [ ] `companies/{companyId}/{userId}/...` 新前缀生成正确。
+- [ ] 上传完成校验、临时文件清理和孤儿回收不跨公司。
+- [ ] 永久媒体代理与公司管理员审查流权限正确：兑换 token 只能消费一次，stream handle TTL≤60 秒、绑定同会话同 upload、支持 Range 且 no-store，不下发对象存储预签名下载地址。
+- [ ] upload_references 复合键调整后引用计数和删除保护正常。
+
+## 模型与生成
+
+- [ ] 文本、图片、视频和音频模型选择器只显示最终授权交集。
+- [ ] 默认模型失效时不静默切换到其他模型。
+- [ ] 模型参数、单次生成数、文件数量、大小和媒体时长校验保持有效。
+- [ ] OpenAI、Azure OpenAI、Gemini 和火山方舟既有调用协议保持正常。
+- [ ] Azure 专属 Provider 的 Deployment/API Version override 生效。
+- [ ] 生成请求 requestId 幂等保持正常，用户主动重试创建新 job。
+- [ ] queued/running/cancelled/succeeded/failed 状态和取消接口保持正常。
+
+## 并发、积分与用量
+
+- [ ] 模型全局并发限制仍返回 SERVICE_BUSY。
+- [ ] 公司和成员普通/视频并发限制分别生效。
+- [ ] 公司账户行锁不会破坏不同公司的并行任务。
+- [ ] 周期已用包含 active 预占，不能并发穿透。
+- [ ] 成功、失败、取消和重复完成处理不会重复扣分。
+- [ ] Shadow/Soft/Hard 切换期间的在途任务始终按 reservation.mode 结算或释放。
+- [ ] 生成全链路锁序统一为 model → company → member，不保留旧 user → model 反向锁序。
+- [ ] 预占跨价格发布时间仍按原价格版本结算。
+- [ ] Token 与媒体用量、provider/estimated 来源和积分流水可以对账。
+
+## 管理后台
+
+- [ ] 数据总览增加公司维度后原有统计不重复。
+- [ ] 用户列表、状态、项目详情和搜索按新三态与公司筛选工作。
+- [ ] 用量明细和同步 CSV 导出范围、字段及审计正确。
+- [ ] 提示词分析继续记录平台管理员查看审计。
+- [ ] Provider、模型增删改、默认模型和渠道密钥脱敏保持正常。
+- [ ] registration_open 设置和自助注册入口已彻底移除。
+- [ ] env、seed、auth service、HTTP 错误映射、`/auth/me` 类型、用户页“今日调用”卡片、catalog 注册开关和中日文 i18n 中的 registration_open / dailyCallLimit / DAILY_CALL_LIMIT / CONCURRENCY_LIMIT 已清理。
+
+## 安全与隐私
+
+- [ ] 跨公司具体资源统一返回 NOT_FOUND，不泄露存在性。
+- [ ] 角色整体不可达的管理接口返回 FORBIDDEN。
+- [ ] 密码、会话令牌、API Key、Base URL、Deployment 和供应商原始错误不出现在公司端或日志。
+- [ ] 公司管理员敏感查看和公司用量导出均写审计。
+- [ ] 公司管理员不能操作自己、同级管理员或其他公司成员。
+
+## 发布阶段
+
+- [ ] 新 schema 与 seed 可从空数据库建立完整测试环境。
+- [ ] Shadow 走完整积分链路但账户余额不变。
+- [ ] Soft 只预警不阻断。
+- [ ] Hard 可以按公司启用和立即关闭。
+- [ ] 关闭 Hard 不删除已产生的用量、审计或正式积分流水。
