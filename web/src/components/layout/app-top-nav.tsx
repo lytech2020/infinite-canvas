@@ -25,13 +25,13 @@ export function AppTopNav() {
                     <div className="mx-auto flex h-full max-w-7xl items-stretch justify-between gap-5 px-6">
                         <div className="flex min-w-0 items-center">
                             <Link to="/" className="flex h-full shrink-0 items-center gap-2 text-sm font-semibold leading-none tracking-tight text-stone-950 transition hover:text-stone-600 dark:text-stone-100 dark:hover:text-stone-300">
-                                <span
-                                    className="size-5 shrink-0 bg-current"
-                                    style={{
-                                        mask: "url(/logo.svg) center / contain no-repeat",
-                                        WebkitMask: "url(/logo.svg) center / contain no-repeat",
-                                    }}
-                                />
+                                <span className="relative h-7 w-12 shrink-0 overflow-hidden" aria-hidden="true">
+                                    <img
+                                        src="/measure-navi-logo.png"
+                                        alt=""
+                                        className="absolute left-1/2 top-1/2 w-[172%] max-w-none -translate-x-1/2 -translate-y-[44%] dark:invert"
+                                    />
+                                </span>
                                 <span className="text-base font-medium">{t("productName")}</span>
                             </Link>
 
