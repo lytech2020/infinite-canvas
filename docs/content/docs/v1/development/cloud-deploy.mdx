@@ -29,39 +29,39 @@ cp .env.example .env
 ```
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
+docker compose up -d --build
 ```
 
-`docker-compose.local.yml` 会启动 MinIO、等待其健康并自动创建 `infinite-canvas` bucket；后台容器启动时自动执行 `prisma migrate deploy` 和幂等 seed，首次启动会创建管理员和可选初始 Azure OpenAI 渠道。seed 只创建不存在的渠道和模型，不会覆盖管理后台里已经修改的地址、密钥或启用状态；seed 配置错误会输出警告但不阻断后台启动。
+`docker-compose.yml` 会启动前端、后台、PostgreSQL、MinIO，等待 MinIO 健康并自动创建 `infinite-canvas` bucket；后台容器启动时自动执行 `prisma migrate deploy` 和幂等 seed，首次启动会创建管理员和可选初始 Azure OpenAI 渠道。seed 只创建不存在的渠道和模型，不会覆盖管理后台里已经修改的地址、密钥或启用状态；seed 配置错误会输出警告但不阻断后台启动。
 
-本地配置统一放在根目录 `.env`：`DATABASE_URL` 使用服务名 `db`，`S3_ENDPOINT` 使用后台可访问的容器服务名 `http://minio:9000`，`S3_PUBLIC_ENDPOINT` 使用浏览器可访问的 `http://localhost:9000`；每日调用限额按 `QUOTA_TIMEZONE` 重置。自助注册默认关闭，新普通用户默认每日 20 次，可通过 `DEFAULT_DAILY_CALL_LIMIT` 调整，之后也可在用户管理中单独设置或清空为不限。`.env` 不提交到 Git。
+本地配置统一放在根目录 `.env`：`DATABASE_URL` 使用服务名 `db`，`S3_ENDPOINT` 使用后台可访问的容器服务名 `http://minio:9000`，`S3_PUBLIC_ENDPOINT` 使用浏览器可访问的 MinIO API 地址；每日调用限额按 `QUOTA_TIMEZONE` 重置。自助注册默认关闭，新普通用户默认每日 20 次，可通过 `DEFAULT_DAILY_CALL_LIMIT` 调整，之后也可在用户管理中单独设置或清空为不限。`.env` 不提交到 Git。
 
 停止服务但保留数据库和对象存储数据：
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.local.yml down
+docker compose down
 ```
 
 ### 2.1 验证
 
 - 打开 `http://localhost:3000/login`，用 `ADMIN_EMAIL` 登录。
 - 顶部用户菜单应出现「管理后台」入口，进入 `/admin` 能看到数据总览；账号菜单中的「修改密码」可替换初始密码。
-- `curl http://localhost:8787/api/v1/health` 返回 `{"data":{"ok":true}}`。
-- MinIO 控制台位于 `http://localhost:9001`；本地覆盖文件的默认账号和密码均为 `infinite_canvas`，只用于本机开发，生产环境不要沿用。
+- `curl http://localhost:3000/api/v1/health` 返回 `{"data":{"ok":true}}`。
+- MinIO 控制台位于 `http://localhost:9001`；默认账号和密码均为 `.env` 中的 `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD`，只用于测试环境，正式环境不要沿用。
 
 修改前端、后台或 Compose 配置后，需重新构建镜像才能生效：
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
+docker compose up -d --build
 ```
 
-只刷新浏览器不会把宿主机的新代码复制进已有容器。重建后可用 `docker compose -f docker-compose.yml -f docker-compose.local.yml ps` 检查服务状态，用 `docker compose -f docker-compose.yml -f docker-compose.local.yml logs --tail=200 server app minio` 查看近期日志。
+只刷新浏览器不会把宿主机的新代码复制进已有容器。重建后可用 `docker compose ps` 检查服务状态，用 `docker compose logs --tail=200 server app minio` 查看近期日志。
 
 ## 3. 服务器部署
 
 ### 3.1 使用 docker compose
 
-`docker-compose.yml` 已包含 `app`（前端）、`server`（后台）和 `db` 三个服务，前后端都会从当前代码构建，不再引用远端 `latest` 镜像。对象存储使用外部 S3 兼容服务。部署前先执行 `cp .env.example .env`，然后至少修改 `POSTGRES_PASSWORD`、`DATABASE_URL`、`SECRET_ENCRYPTION_KEY`、`ADMIN_EMAIL`、`ADMIN_PASSWORD` 和全部 `S3_*`。
+`docker-compose.yml` 已包含 `app`（前端）、`server`（后台）、`db`、`minio` 和 `minio-init`，前后端都会从当前代码构建，不再引用远端 `latest` 镜像。部署前先执行 `cp .env.example .env`，然后至少修改 `POSTGRES_PASSWORD`、`DATABASE_URL`、`SECRET_ENCRYPTION_KEY`、`ADMIN_EMAIL`、`ADMIN_PASSWORD`、`S3_PUBLIC_ENDPOINT` 和 MinIO 密码。
 
 `POSTGRES_PASSWORD` 与 `DATABASE_URL` 中的密码必须一致；密码包含特殊字符时要在 URL 中进行百分号编码。`.env` 已被 Git 忽略，不要提交真实值。
 

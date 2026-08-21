@@ -344,13 +344,13 @@ server/
 cp .env.example .env
 ```
 
-2. 使用生产 Compose 与本地覆盖文件启动全部服务：
+2. 使用根目录 Compose 启动全部服务：
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
+docker compose up -d --build
 ```
 
-本地覆盖文件增加 MinIO、bucket 初始化和后台 `8787` 端口映射；PostgreSQL 与 MinIO 数据分别保存在 Docker volume 中。后台容器启动时自动执行 `prisma migrate deploy`，随后执行不会覆盖既有管理配置的幂等 seed；seed 失败只记录警告，不阻断后台服务。
+`docker-compose.yml` 包含前端、后台、PostgreSQL、MinIO 和 bucket 初始化；PostgreSQL 与 MinIO 数据分别保存在 Docker volume 中。后台容器启动时自动执行 `prisma migrate deploy`，随后执行不会覆盖既有管理配置的幂等 seed；seed 失败只记录警告，不阻断后台服务。
 
 当前任务执行与取消句柄保存在单个后台进程中，部署时只能运行一个 `server` 副本；多副本需要先引入独立任务队列、Worker 租约与心跳，避免某个实例启动时把其他实例的运行任务判为中断。
 
@@ -359,9 +359,9 @@ docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
 4. 打开前端与对象存储控制台：
 
 - 前端：`http://localhost:3000`
-- 后端健康接口：`http://localhost:8787/api/v1/health`
+- 后端健康接口：`http://localhost:3000/api/v1/health`
 - MinIO API：`http://localhost:9000`
-- MinIO 控制台：`http://localhost:9001`，本地默认账号和密码均为 `infinite_canvas`
+- MinIO 控制台：`http://localhost:9001`，默认账号和密码来自 `.env` 的 `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD`
 
 只有开发 Prisma schema 时才在宿主机使用 `npm run migrate:dev -- --name <name>` 生成新迁移；日常启动不再分别运行前端和后台开发服务器。
 
