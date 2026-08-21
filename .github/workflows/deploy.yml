@@ -1,0 +1,299 @@
+name: Deploy to VM
+run-name: Deploy ${{ inputs.target }} to VM
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Component to deploy
+        required: true
+        type: choice
+        options:
+          - all
+          - frontend
+          - backend
+
+permissions:
+  contents: read
+
+concurrency:
+  group: infinite-canvas-vm-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      DEPLOY_ROOT: /var/www/${{ github.event.repository.name }}
+      SSH_HOST: ${{ secrets.SSH_HOST }}
+      SSH_USER: ${{ secrets.SSH_USER }}
+      RELEASE_NAME: ${{ github.sha }}-${{ github.run_attempt }}
+      REMOTE_COMPOSE_TEMPLATE: /tmp/infinite-canvas-compose-${{ github.run_id }}-${{ github.run_attempt }}.yml
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Bun
+        if: inputs.target == 'all' || inputs.target == 'frontend'
+        uses: oven-sh/setup-bun@v2
+
+      - name: Build frontend
+        if: inputs.target == 'all' || inputs.target == 'frontend'
+        working-directory: web
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+
+      - name: Set up Node.js
+        if: inputs.target == 'all' || inputs.target == 'backend'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - name: Build backend
+        if: inputs.target == 'all' || inputs.target == 'backend'
+        working-directory: server
+        run: |
+          npm ci --no-audit --no-fund
+          npx prisma generate
+          npm run build
+
+      - name: Calculate backend dependency ID
+        id: backend-dependencies
+        if: inputs.target == 'all' || inputs.target == 'backend'
+        shell: bash
+        run: |
+          dependency_id="$({ sha256sum server/package-lock.json; sha256sum server/prisma/schema.prisma; } | sha256sum | cut -d ' ' -f 1)"
+          echo "dependency-id=${dependency_id}" >> "${GITHUB_OUTPUT}"
+
+      - name: Set up SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Add server to known_hosts
+        run: ssh-keyscan -H "${SSH_HOST}" >> ~/.ssh/known_hosts
+
+      - name: Prepare server release
+        run: |
+          ssh "${SSH_USER}@${SSH_HOST}" bash -s -- \
+            "${DEPLOY_ROOT}" "${SSH_USER}" "${RELEASE_NAME}" "${{ inputs.target }}" <<'REMOTE'
+          set -euo pipefail
+          deploy_root="$1"
+          deploy_user="$2"
+          release_name="$3"
+          target="$4"
+          release_path="${deploy_root}/releases/${release_name}"
+
+          sudo -n true
+          if ! command -v docker >/dev/null 2>&1; then
+            installer="$(mktemp)"
+            curl -fsSL https://get.docker.com -o "${installer}"
+            sudo sh "${installer}"
+            rm -f "${installer}"
+          fi
+
+          sudo systemctl enable --now docker
+          sudo docker compose version
+          sudo install -d -o "${deploy_user}" -g www-data -m 0755 \
+            "${deploy_root}" "${deploy_root}/releases" "${deploy_root}/dependencies"
+
+          if [[ ! -f "${deploy_root}/.env" ]]; then
+            echo "Missing ${deploy_root}/.env; upload it before running deployment." >&2
+            exit 1
+          fi
+          chmod 600 "${deploy_root}/.env"
+          install -d -m 0755 "${release_path}"
+
+          if [[ "${target}" != "all" ]]; then
+            if [[ ! -L "${deploy_root}/current" ]]; then
+              echo "The first deployment must use target=all." >&2
+              exit 1
+            fi
+            cp -aL "${deploy_root}/current/." "${release_path}/"
+          fi
+          REMOTE
+
+      - name: Copy Compose template
+        run: |
+          rsync -avz .github/deploy/docker-compose.yml \
+            "${SSH_USER}@${SSH_HOST}:${REMOTE_COMPOSE_TEMPLATE}"
+
+      - name: Copy frontend release
+        if: inputs.target == 'all' || inputs.target == 'frontend'
+        run: |
+          # shellcheck disable=SC2029 # Paths are intentionally expanded on the runner.
+          ssh "${SSH_USER}@${SSH_HOST}" \
+            "install -d -m 0755 '${DEPLOY_ROOT}/releases/${RELEASE_NAME}/web'"
+          rsync -avz --delete --chmod=D755,F644 web/dist/ \
+            "${SSH_USER}@${SSH_HOST}:${DEPLOY_ROOT}/releases/${RELEASE_NAME}/web/"
+
+      - name: Copy backend release
+        if: inputs.target == 'all' || inputs.target == 'backend'
+        env:
+          SERVER_DEPENDENCY_ID: ${{ steps.backend-dependencies.outputs.dependency-id }}
+        run: |
+          remote_server="${DEPLOY_ROOT}/releases/${RELEASE_NAME}/server"
+          # shellcheck disable=SC2029 # Paths are intentionally expanded on the runner.
+          ssh "${SSH_USER}@${SSH_HOST}" \
+            "install -d -m 0755 '${remote_server}'"
+          # The dependency volume is mounted below the read-only /app bind mount.
+          # Its mountpoint must already exist in the release directory.
+          ssh "${SSH_USER}@${SSH_HOST}" \
+            "install -d -m 0755 '${remote_server}/node_modules'"
+          rsync -avz --delete server/dist/ \
+            "${SSH_USER}@${SSH_HOST}:${remote_server}/dist/"
+          rsync -avz --delete server/prisma/ \
+            "${SSH_USER}@${SSH_HOST}:${remote_server}/prisma/"
+          rsync -avz server/package.json server/package-lock.json \
+            "${SSH_USER}@${SSH_HOST}:${remote_server}/"
+          # shellcheck disable=SC2029 # The dependency ID and path are runner values.
+          ssh "${SSH_USER}@${SSH_HOST}" \
+            "printf '%s\n' '${SERVER_DEPENDENCY_ID}' > '${DEPLOY_ROOT}/releases/${RELEASE_NAME}/server-dependency-id'"
+
+      - name: Activate release
+        run: |
+          ssh "${SSH_USER}@${SSH_HOST}" bash -s -- \
+            "${DEPLOY_ROOT}" "${RELEASE_NAME}" "${REMOTE_COMPOSE_TEMPLATE}" \
+            "${{ inputs.target }}" <<'REMOTE'
+          set -euo pipefail
+          deploy_root="$1"
+          release_name="$2"
+          compose_template="$3"
+          target="$4"
+          release_path="${deploy_root}/releases/${release_name}"
+          compose_file="${deploy_root}/docker-compose.yml"
+          compose_backup="${deploy_root}/docker-compose.yml.before-${release_name}"
+          previous_release="$(readlink "${deploy_root}/current" 2>/dev/null || true)"
+          activated=0
+
+          rollback() {
+            status=$?
+            trap - EXIT
+            rm -f "${compose_template}"
+            if [[ "${status}" -ne 0 && "${activated}" -eq 1 && -n "${previous_release}" && -f "${compose_backup}" ]]; then
+              echo "Deployment failed; restoring ${previous_release}." >&2
+              ln -sfn "${previous_release}" "${deploy_root}/current.next"
+              mv -Tf "${deploy_root}/current.next" "${deploy_root}/current"
+              mv -f "${compose_backup}" "${compose_file}"
+              if [[ "${target}" == "all" || "${target}" == "backend" ]]; then
+                cd "${deploy_root}"
+                sudo docker compose --file "${compose_file}" up --detach --no-deps --force-recreate server || true
+              fi
+            else
+              rm -f "${compose_backup}"
+            fi
+            exit "${status}"
+          }
+          trap rollback EXIT
+
+          if [[ ! -f "${release_path}/web/index.html" || ! -f "${release_path}/server/dist/src/index.js" || ! -f "${release_path}/server-dependency-id" ]]; then
+            echo "The release is incomplete; frontend, backend, or dependency metadata is missing." >&2
+            exit 1
+          fi
+
+          server_dependency_id="$(tr -d '\r\n' < "${release_path}/server-dependency-id")"
+          if [[ ! "${server_dependency_id}" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "Invalid backend dependency ID." >&2
+            exit 1
+          fi
+
+          dependency_path="${deploy_root}/dependencies/${server_dependency_id}"
+          if [[ ! -f "${dependency_path}/.ready" ]]; then
+            if [[ -e "${dependency_path}" ]]; then
+              echo "Incomplete dependency cache exists at ${dependency_path}; remove it before retrying." >&2
+              exit 1
+            fi
+            dependency_tmp="${dependency_path}.tmp-${release_name}"
+            install -d -m 0755 "${dependency_tmp}/prisma"
+            cp "${release_path}/server/package.json" "${release_path}/server/package-lock.json" "${dependency_tmp}/"
+            cp "${release_path}/server/prisma/schema.prisma" "${dependency_tmp}/prisma/"
+            sudo docker run --rm \
+              --volume "${dependency_tmp}:/app" \
+              --workdir /app \
+              node:20-bookworm \
+              sh -ec 'npm ci --no-audit --no-fund && ./node_modules/.bin/prisma generate --schema prisma/schema.prisma && touch .ready'
+            mv "${dependency_tmp}" "${dependency_path}"
+          fi
+
+          if [[ -f "${compose_file}" ]]; then
+            cp "${compose_file}" "${compose_backup}"
+          fi
+          rendered="$(<"${compose_template}")"
+          rendered="${rendered//__SERVER_DEPENDENCY_ID__/${server_dependency_id}}"
+          printf '%s\n' "${rendered}" > "${compose_file}.tmp"
+          chmod 644 "${compose_file}.tmp"
+
+          ln -sfn "releases/${release_name}" "${deploy_root}/current.next"
+          mv -Tf "${deploy_root}/current.next" "${deploy_root}/current"
+          mv -f "${compose_file}.tmp" "${compose_file}"
+          activated=1
+
+          cd "${deploy_root}"
+          compose=(sudo docker compose --file "${compose_file}")
+          "${compose[@]}" config --quiet
+          "${compose[@]}" up --detach db minio
+
+          for service in db minio; do
+            container_id="$("${compose[@]}" ps --all --quiet "${service}")"
+            healthy=0
+            for attempt in $(seq 1 60); do
+              health="$(sudo docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' "${container_id}")"
+              case "${health}" in
+                healthy)
+                  healthy=1
+                  break
+                  ;;
+                unhealthy|missing)
+                  "${compose[@]}" logs --tail=100 "${service}"
+                  exit 1
+                  ;;
+              esac
+              sleep 2
+            done
+            if [[ "${healthy}" -ne 1 ]]; then
+              "${compose[@]}" logs --tail=100 "${service}"
+              exit 1
+            fi
+          done
+
+          "${compose[@]}" exec --no-tty minio sh -ec \
+            'mc alias set local http://127.0.0.1:9000 "${MINIO_ROOT_USER}" "${MINIO_ROOT_PASSWORD}" && mc mb --ignore-existing "local/${S3_BUCKET}"'
+
+          if [[ "${target}" == "all" || "${target}" == "backend" ]]; then
+            "${compose[@]}" up --detach --no-deps --force-recreate server
+            server_healthy=0
+            for attempt in $(seq 1 48); do
+              server_id="$("${compose[@]}" ps --all --quiet server)"
+              server_health="$(sudo docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' "${server_id}")"
+              if [[ "${server_health}" == "healthy" ]]; then
+                server_healthy=1
+                break
+              fi
+              if [[ "${server_health}" == "unhealthy" ]]; then
+                break
+              fi
+              sleep 5
+            done
+            if [[ "${server_healthy}" -ne 1 ]]; then
+              "${compose[@]}" logs --tail=150 server
+              exit 1
+            fi
+          fi
+
+          for attempt in $(seq 1 24); do
+            if curl --fail --silent --show-error http://127.0.0.1:8787/api/v1/health >/dev/null; then
+              "${compose[@]}" ps
+              rm -f "${compose_backup}"
+              exit 0
+            fi
+            sleep 5
+          done
+
+          "${compose[@]}" logs --tail=150 server
+          exit 1
+          REMOTE
