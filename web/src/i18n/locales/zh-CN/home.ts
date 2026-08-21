@@ -2,7 +2,7 @@ export default {
     loadPromptsFailed: "获取提示词失败",
     hero: {
         lead: "在",
-        brand: "无限画布",
+        brand: "Measure NAVI Canvas",
         middle: "中生成、连接和重组",
         objects: "图片、文字与图形",
         end: "，让创作从单次生成变成连续推演。",

@@ -1,6 +1,6 @@
 export default {
-    productName: "无限画布",
-    browserTitle: "无限画布",
+    productName: "Measure NAVI Canvas",
+    browserTitle: "Measure NAVI Canvas",
     actions: {
         edit: "编辑",
         done: "完成",

@@ -9,7 +9,7 @@ FP --> ME["成员授权 追加"]
 FP --> LIST["GET models 変更"]
 FP --> GEN["生成校验 拡張"]
 FP --> PREF["默认模型偏好 変更"]</pre></div></section>
-<section id="s4"><h2>4. 最小修改方针</h2><p>模型定义保持平台全局唯一，通过关系表授权，不为每家公司复制模型。模型参数和文件限制继续复用平台模型配置。</p></section>
+<section id="s4"><h2>4. 最小修改方针</h2><p>模型定义保持平台全局唯一，通过关系表授权，不为每家公司复制模型。模型参数和文件限制继续复用平台模型配置。授权表只表达 enabled 集合；默认模型使用独立默认表，以 companyId/userId + capability 主键在数据库层保证每种能力最多一个默认值，避免依赖跨表唯一索引。</p></section>
 <section id="s5"><h2>5. 处理流程详细设计</h2><div class="diagram"><pre class="mermaid">flowchart TD
 A["请求模型列表/生成"] --> B{"模型平台启用"}
 B -- 否 --> X["不可用"]
@@ -29,7 +29,7 @@ CompanyModels --> CompanyModels: 保存/校验错误
 CompanyModels --> MemberModels: 进入成员授权
 MemberModels --> MemberModels: 保存
 MemberModels --> CompanyModels: 返回</pre></div></section>
-<section id="s9"><h2>9. API 详细设计</h2><table><tr><th>方法</th><th>路径</th></tr><tr><td>GET/PUT</td><td>/api/v1/admin/companies/{id}/models</td></tr><tr><td>GET/PUT</td><td>/api/v1/company/members/{id}/models</td></tr><tr><td>GET</td><td>/api/v1/models（変更）</td></tr></table><div class="diagram"><pre class="mermaid">sequenceDiagram
+<section id="s9"><h2>9. API 详细设计</h2><table><tr><th>方法</th><th>路径</th></tr><tr><td>GET/PUT</td><td>/api/v1/admin/companies/{companyId}/models</td></tr><tr><td>GET/PUT</td><td>/api/v1/company/members/{userId}/models</td></tr><tr><td>GET</td><td>/api/v1/models（変更）</td></tr></table><p>两个 PUT 均在一个事务内更新授权集合与对应默认表。默认 modelId 必须同时满足 capability 匹配、模型平台启用且属于更新后的有效授权集合；传 null 表示删除该 capability 默认行。</p><div class="diagram"><pre class="mermaid">sequenceDiagram
 actor U as 成员
 participant UI as 模型选择器
 participant API as Models API
@@ -44,8 +44,14 @@ COMPANIES ||--o{ COMPANY_MODEL_ENTITLEMENTS : has
 MODELS ||--o{ COMPANY_MODEL_ENTITLEMENTS : grants
 USERS ||--o{ MEMBER_MODEL_ENTITLEMENTS : has
 MODELS ||--o{ MEMBER_MODEL_ENTITLEMENTS : grants
-COMPANY_MODEL_ENTITLEMENTS { string company_id FK string model_id FK boolean enabled boolean is_default }
-    MEMBER_MODEL_ENTITLEMENTS { string user_id FK string model_id FK boolean enabled boolean is_default }</pre></div><table><tr><th>ID</th><th>对象</th><th>约束</th></tr><tr><td>DB-FP-ORG-004-001</td><td>company_model_entitlements</td><td>company_id + model_id 唯一；enabled、is_default；每个 companyId+capability 最多一个有效默认模型</td></tr><tr><td>DB-FP-ORG-004-002</td><td>member_model_entitlements</td><td>user_id + model_id 唯一；enabled、is_default；每个 userId+capability 最多一个有效默认模型，授权模型必须属于当前公司集合</td></tr></table><p>授权关闭不删除历史记录；公司授权回收后成员记录保留但不生效。</p></section>
+COMPANIES ||--o{ COMPANY_DEFAULT_MODELS : defaults
+USERS ||--o{ MEMBER_DEFAULT_MODELS : defaults
+MODELS ||--o{ COMPANY_DEFAULT_MODELS : selected
+MODELS ||--o{ MEMBER_DEFAULT_MODELS : selected
+COMPANY_MODEL_ENTITLEMENTS { string company_id FK string model_id FK boolean enabled }
+    MEMBER_MODEL_ENTITLEMENTS { string user_id FK string model_id FK boolean enabled }
+    COMPANY_DEFAULT_MODELS { string company_id PK string capability PK string model_id FK }
+    MEMBER_DEFAULT_MODELS { string user_id PK string capability PK string model_id FK }</pre></div><table><tr><th>ID</th><th>对象</th><th>约束</th></tr><tr><td>DB-FP-ORG-004-001</td><td>company_model_entitlements</td><td>unique(company_id,model_id)；enabled；不保存 is_default</td></tr><tr><td>DB-FP-ORG-004-002</td><td>member_model_entitlements</td><td>unique(user_id,model_id)；enabled；授权模型必须属于当前公司集合；不保存 is_default</td></tr><tr><td>DB-FP-ORG-004-003</td><td>company_default_models</td><td>company_id、capability、model_id；PK(company_id,capability)，FK company/model。服务事务校验 model.capability 与 capability 一致且公司授权有效</td></tr><tr><td>DB-FP-ORG-004-004</td><td>member_default_models</td><td>user_id、capability、model_id；PK(user_id,capability)，FK user/model。服务事务校验模型属于该成员当前有效交集</td></tr></table><p>授权关闭不删除历史记录；公司授权回收后成员记录保留但不生效。默认行指向失效授权时不作为可用默认值；授权写接口应在同一事务内删除对应失效默认行。</p></section>
 <section id="s11"><h2>11. 权限 / 角色 / 数据范围设计</h2><div class="diagram"><pre class="mermaid">flowchart TD
 A["修改授权"] --> B{"平台管理员"}
 B -- 是 --> C["可改公司模型"]
@@ -61,12 +67,12 @@ G -- 否 --> H["保存"]</pre></div><table><tr><th>ID</th><th>规则</th></tr><t
 <section id="s13"><h2>13. 日志 / 监查 / 运用设计</h2><p>记录授权前后模型 ID 集合、操作者、公司和成员；监控已授权但无可用渠道或无生效价格的模型。</p></section>
 <section id="s14"><h2>14. 外部接口 / 文件 / 批处理 / 通知</h2><p>不调用供应商模型列表决定授权；授权依据平台已登记模型。授权回收不取消已进入供应商的任务，但服务端立即阻止新任务。前端不依赖推送：登录/切号后重取，模型选择器在页面聚焦或缓存 TTL 到期时重取；生成返回 MODEL_NOT_ENTITLED、MODEL_ROUTE_UNAVAILABLE 或 MODEL_PRICE_UNAVAILABLE 时强制刷新并清除失效默认值。</p></section>
 <section id="s15"><h2>15. 数据迁移 / 初期数据 / 兼容性</h2><p>不默认将全部模型授权给全部公司。测试环境可用显式 seed 列表初始化；生产由平台管理员逐公司授权。</p></section>
-<section id="s16"><h2>16. 测试设计观点</h2><ul><li>TEST-FP-ORG-004-001：平台启用、公司授权、成员授权、可用渠道/价格四条件交集正确。</li><li>TEST-FP-ORG-004-002：公司回收模型后成员授权残留也不能使用，重新授权后按保留的 enabled 状态恢复。</li><li>TEST-FP-ORG-004-003：公司管理员不能越权修改自己、company_admin、其他公司成员或公司集合外模型。</li><li>TEST-FP-ORG-004-004：默认模型失效时按成员→公司→平台交集链重算；仍无默认时要求用户显式选择，不静默切换收费模型。</li></ul></section>
+<section id="s16"><h2>16. 测试设计观点</h2><ul><li>TEST-FP-ORG-004-001：平台启用、公司授权、成员授权、可用渠道/价格四条件交集正确。</li><li>TEST-FP-ORG-004-002：公司回收模型后成员授权残留也不能使用，重新授权后按保留的 enabled 状态恢复。</li><li>TEST-FP-ORG-004-003：公司管理员不能越权修改自己、company_admin、其他公司成员或公司集合外模型。</li><li>TEST-FP-ORG-004-004：company/user + capability 主键并发写入时仍最多一条默认；默认模型失效时按成员→公司→平台交集链重算，仍无默认时要求用户显式选择，不静默切换收费模型。</li></ul></section>
 <section id="s17"><h2>17. 发布 / 回滚 / 影响确认</h2><div class="diagram"><pre class="mermaid">flowchart TD
 A["建授权表"] --> B["平台配置公司授权"] --> C["配置成员授权"] --> D["对比旧模型列表"] --> E{"确认"}
 E -- 否 --> R["关闭授权过滤"]
 E -- 是 --> F["启用生成强校验"]</pre></div></section>
-<section id="s18"><h2>18. 开发任务拆分</h2><p>TASK-004-001 授权表；002 平台 API/页面；003 公司 API/页面；004 模型列表过滤；005 生成时强校验；006 测试。</p></section>
+<section id="s18"><h2>18. 开发任务拆分</h2><p>TASK-004-001 授权表与公司/成员默认表；002 平台 API/页面；003 公司 API/页面；004 模型列表和默认链过滤；005 生成时强校验；006 并发默认写入与授权回收测试。</p></section>
 <section id="s19"><h2>19. 未决事项与风险</h2><p><span class="ok">确认済</span> 公司模型被回收后保留成员授权记录但不生效；重新授权时恢复。平台管理员如需彻底清除，应执行显式清除动作并审计。</p></section>
-<section id="s20"><h2>20. 追踪矩阵</h2><table><tr><th>需求</th><th>对象</th><th>测试</th></tr><tr><td>平台授权公司</td><td>DB-FP-ORG-004-001 / PERM-FP-ORG-004-001</td><td>TEST-FP-ORG-004-001/002</td></tr><tr><td>公司授权成员</td><td>DB-FP-ORG-004-002 / PERM-FP-ORG-004-002</td><td>TEST-FP-ORG-004-002/003</td></tr><tr><td>最终模型列表与默认值</td><td>GET models / 默认链</td><td>TEST-FP-ORG-004-001/004</td></tr></table></section>
+<section id="s20"><h2>20. 追踪矩阵</h2><table><tr><th>需求</th><th>对象</th><th>测试</th></tr><tr><td>平台授权公司</td><td>DB-FP-ORG-004-001 / PERM-FP-ORG-004-001</td><td>TEST-FP-ORG-004-001/002</td></tr><tr><td>公司授权成员</td><td>DB-FP-ORG-004-002 / PERM-FP-ORG-004-002</td><td>TEST-FP-ORG-004-002/003</td></tr><tr><td>最终模型列表与默认值</td><td>DB-FP-ORG-004-003/004 + GET models / 默认链</td><td>TEST-FP-ORG-004-001/004</td></tr></table></section>
 </main><script>mermaid.initialize({startOnLoad:true,securityLevel:"loose"})</script></body></html>

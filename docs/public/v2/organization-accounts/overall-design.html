@@ -107,10 +107,10 @@
 
 <section id="api"><h2>9. API 详细设计</h2>
 <h3>平台管理员 API</h3><table><tr><th>方法</th><th>路径</th><th>说明</th></tr>
-<tr><td>GET/POST</td><td>/api/v1/admin/companies</td><td>公司列表和创建</td></tr><tr><td>GET/PATCH</td><td>/api/v1/admin/companies/{companyId}</td><td>详情、基本信息和状态</td></tr><tr><td>PUT</td><td>/api/v1/admin/companies/{companyId}/models</td><td>设置公司模型授权</td></tr><tr><td>PUT</td><td>/api/v1/admin/companies/{companyId}/provider-bindings</td><td>设置公司专属渠道绑定</td></tr><tr><td>POST</td><td>/api/v1/admin/companies/{companyId}/credit-adjustments</td><td>发放、扣减或补偿积分</td></tr><tr><td>GET</td><td>/api/v1/admin/companies/{companyId}/usage</td><td>公司用量与积分流水</td></tr></table>
+<tr><td>GET/POST</td><td>/api/v1/admin/companies</td><td>公司列表和创建</td></tr><tr><td>GET/PATCH</td><td>/api/v1/admin/companies/{companyId}</td><td>详情、基本信息和状态</td></tr><tr><td>PUT</td><td>/api/v1/admin/companies/{companyId}/models</td><td>设置公司模型授权与按 capability 默认模型</td></tr><tr><td>PUT</td><td>/api/v1/admin/companies/{companyId}/provider-bindings</td><td>设置公司专属渠道绑定</td></tr><tr><td>POST</td><td>/api/v1/admin/companies/{companyId}/credit-adjustments</td><td>发放、扣减或补偿积分</td></tr><tr><td>PATCH</td><td>/api/v1/admin/companies/{companyId}/credit-mode</td><td>设置继承全局或公司 shadow/soft/hard 覆盖</td></tr><tr><td>POST</td><td>/api/v1/admin/companies/{companyId}/models/{modelId}/billing-suspension/resume</td><td>带原因和证据恢复活动 Hard 暂停并审计</td></tr><tr><td>GET</td><td>/api/v1/admin/companies/{companyId}/usage</td><td>公司用量与积分流水</td></tr><tr><td>GET</td><td>/api/v1/admin/usage/export.csv</td><td>平台全量受限导出并写审计</td></tr></table>
 <h3>公司管理员 API</h3><table><tr><th>方法</th><th>路径</th><th>说明</th></tr>
 <tr><td>GET/POST</td><td>/api/v1/company/members</td><td>本公司成员列表和添加</td></tr><tr><td>PATCH</td><td>/api/v1/company/members/{userId}</td><td>普通成员状态和显示信息；不允许修改角色</td></tr><tr><td>PUT</td><td>/api/v1/company/members/{userId}/models</td><td>成员模型授权</td></tr><tr><td>PUT</td><td>/api/v1/company/members/{userId}/limits</td><td>成员积分和并发上限</td></tr><tr><td>GET</td><td>/api/v1/company/usage</td><td>公司余额、周期消费和成员汇总</td></tr><tr><td>GET</td><td>/api/v1/company/members/{userId}/content</td><td>查看成员业务内容并强制审计</td></tr></table>
-<h3>成员 API 变化</h3><p><code>/auth/me</code> 返回公司与角色摘要；<code>/models</code> 只返回公司和成员均授权且可解析渠道的模型；生成接口由服务端完成公司、模型、渠道、积分和并发校验。</p></section>
+<h3>成员 API 变化</h3><p><code>/auth/me</code> 返回公司与角色摘要；must_change_password 会话只允许 <code>GET /auth/me</code>、<code>POST /auth/password</code> 和 <code>POST /auth/logout</code>；<code>/models</code> 只返回公司和成员均授权且可解析渠道的模型；生成接口由服务端完成公司、模型、渠道、积分和并发校验，生成结果通过带 uploadId 的认证同源 content URL 下载，不下发对象存储预签名地址。</p></section>
 
 <section id="db"><h2>10. 数据库详细设计</h2>
 <div class="diagram"><pre class="mermaid">erDiagram
@@ -118,27 +118,32 @@
   COMPANIES ||--|| CREDIT_ACCOUNTS : owns
   COMPANIES ||--o{ COMPANY_MODEL_ENTITLEMENTS : authorizes
   USERS ||--o{ MEMBER_MODEL_ENTITLEMENTS : authorizes
+  COMPANIES ||--o{ COMPANY_DEFAULT_MODELS : defaults
+  USERS ||--o{ MEMBER_DEFAULT_MODELS : defaults
   COMPANIES ||--o{ COMPANY_PROVIDER_BINDINGS : routes
   CREDIT_ACCOUNTS ||--o{ CREDIT_LEDGER_ENTRIES : records
   GENERATION_JOBS ||--o| CREDIT_RESERVATIONS : reserves
   GENERATION_JOBS ||--o| AI_USAGE_RECORDS : meters
   MODELS ||--o{ MODEL_PRICING_VERSIONS : prices
+  COMPANIES ||--o{ COMPANY_MODEL_BILLING_SUSPENSIONS : suspends
   COMPANIES ||--o{ PROJECTS : owns
   COMPANIES ||--o{ USER_DATA : scopes
   COMPANIES ||--o{ UPLOADS : scopes</pre></div>
 <table><tr><th>对象 ID</th><th>表</th><th>关键字段</th><th>说明</th></tr>
-<tr><td>DB-FP-ORG-001-001</td><td>companies</td><td>id, code, name, status, created_at, updated_at</td><td>公司主数据；code 唯一且不复用</td></tr>
+<tr><td>DB-FP-ORG-001-001</td><td>companies</td><td>id, code, name, status, credit_mode_override, concurrency_limit, video_concurrency_limit, created_at, updated_at</td><td>公司主数据；code 唯一且不复用；credit_mode_override 可空，NULL 继承全局默认</td></tr>
 <tr><td>DB-FP-ORG-002-001</td><td>users（変更）</td><td>company_id, company_role, status, archived_at, must_change_password</td><td>company_id 列可空；migration 手写 CHECK 强制 role=admin 时为空、role=user 时非空且公司角色合法；状态为 active/disabled/archived</td></tr>
-<tr><td>DB-FP-ORG-004-001</td><td>company_model_entitlements</td><td>company_id, model_id, enabled</td><td>公司模型集合</td></tr>
-<tr><td>DB-FP-ORG-004-002</td><td>member_model_entitlements</td><td>user_id, model_id, enabled</td><td>成员显式授权，必须属于公司集合</td></tr>
+<tr><td>DB-FP-ORG-004-001</td><td>company_model_entitlements</td><td>company_id, model_id, enabled</td><td>公司模型集合；不保存 is_default</td></tr>
+<tr><td>DB-FP-ORG-004-002</td><td>member_model_entitlements</td><td>user_id, model_id, enabled</td><td>成员显式授权，必须属于公司集合；不保存 is_default</td></tr>
+<tr><td>DB-FP-ORG-004-003/004</td><td>company_default_models / member_default_models</td><td>company_id 或 user_id, capability, model_id</td><td>分别以 owner+capability 为主键，数据库保证每层每能力最多一个默认模型</td></tr>
 <tr><td>DB-FP-ORG-005-001</td><td>providers（変更）</td><td>scope, company_id, api_format, api_key_cipher, enabled</td><td>平台/公司作用域；密钥仍由平台加密管理</td></tr>
 <tr><td>DB-FP-ORG-005-002</td><td>company_provider_bindings</td><td>company_id, model_id, provider_id, remote_name_override, api_version_override, enabled</td><td>公司专属供应商路由，不保存密钥副本</td></tr>
 <tr><td>DB-FP-ORG-006-001</td><td>credit_accounts</td><td>company_id, balance_units, reserved_units, version</td><td>整数最小积分单位；事务锁或乐观版本控制</td></tr>
 <tr><td>DB-FP-ORG-006-002</td><td>credit_ledger_entries</td><td>company_id, user_id, job_id, type, balance_delta, reserved_delta, balance_after, reserved_after, idempotency_key</td><td>不可修改流水，余额与预占分别对账</td></tr>
 <tr><td>DB-FP-ORG-006-003</td><td>credit_reservations</td><td>job_id, company_id, user_id, reserved_units, status, expires_at</td><td>一任务一条预占</td></tr>
 <tr><td>DB-FP-ORG-006-004</td><td>model_pricing_versions</td><td>model_id, version, rule, effective_at, disabled_at</td><td>版本化 JSON 规则，不覆盖历史版本</td></tr>
-<tr><td>DB-FP-ORG-006-005</td><td>company_limits / member_limits</td><td>period, credit_limit, concurrency_limit, video_concurrency_limit</td><td>成员上限不是钱包余额</td></tr>
-<tr><td>DB-FP-ORG-003-001</td><td>projects / user_data（変更）</td><td>company_id</td><td>项目及 KV 增加公司归属并调整复合键/索引</td></tr><tr><td>DB-FP-ORG-003-002</td><td>uploads / upload_references（変更）</td><td>company_id</td><td>上传与引用增加公司归属及复合键</td></tr><tr><td>DB-FP-ORG-003-003</td><td>generation_jobs / ai_usage_records / audit（変更）</td><td>company_id</td><td>任务、用量与审计增加公司范围和时间索引</td></tr><tr><td>DB-FP-ORG-003-004</td><td>content_media_tokens</td><td>token/stream hash, company_id, actor/session/upload, expires_at, consumed_at</td><td>审计后一次性兑换 token + 同会话 TTL≤60 秒 Range 流窗口，响应 no-store</td></tr></table></section>
+<tr><td>DB-FP-ORG-006-005</td><td>company_period_limits / member_period_limits</td><td>company_id 或 user_id, period_start, period, credit_limit</td><td>周期表不保存并发；成员上限不是钱包余额</td></tr>
+<tr><td>DB-FP-ORG-006-006</td><td>company_model_billing_suspensions</td><td>company_id, model_id, suspended_at, reason, evidence_ref, resumed_at, resumed_by, resume_reason</td><td>活动记录部分唯一；控制 company+model Hard 暂停与审计恢复</td></tr>
+<tr><td>DB-FP-ORG-003-001</td><td>projects / user_data（変更）</td><td>company_id</td><td>项目及 KV 增加公司归属并调整复合键/索引</td></tr><tr><td>DB-FP-ORG-003-002</td><td>uploads / upload_references（変更）</td><td>company_id</td><td>上传与引用增加公司归属及复合键；生成结果也创建 ready persistent upload 并保存 uploadId</td></tr><tr><td>DB-FP-ORG-003-003</td><td>generation_jobs / ai_usage_records / audit（変更）</td><td>company_id</td><td>任务、用量与审计增加公司范围和时间索引；job result 文件保存 uploadId，不保存预签名 URL</td></tr><tr><td>DB-FP-ORG-003-004</td><td>content_media_tokens</td><td>token/stream hash, company_id, actor/session/upload, expires_at, consumed_at</td><td>审计后一次性兑换 token + 同会话 TTL≤60 秒 Range 流窗口，响应 no-store</td></tr></table></section>
 
 <section id="permission"><h2>11. 权限 / 角色 / 数据范围设计</h2>
 <div class="diagram"><pre class="mermaid">flowchart TD
@@ -156,17 +161,17 @@
 
 <section id="validation"><h2>12. 校验 / 错误处理设计</h2>
 <table><tr><th>校验 ID</th><th>条件</th><th>错误码</th><th>HTTP</th></tr>
-<tr><td>VAL-FP-ORG-001-001</td><td>公司停用</td><td>COMPANY_DISABLED</td><td>403</td></tr><tr><td>VAL-FP-ORG-002-001</td><td>成员已归档</td><td>ACCOUNT_ARCHIVED</td><td>403</td></tr><tr><td>VAL-FP-ORG-003-001</td><td>资源不属于当前公司</td><td>NOT_FOUND</td><td>404</td></tr><tr><td>VAL-FP-ORG-004-001</td><td>模型未获两级授权</td><td>MODEL_NOT_ENTITLED</td><td>403</td></tr><tr><td>VAL-FP-ORG-005-001</td><td>找不到可用供应商渠道</td><td>MODEL_ROUTE_UNAVAILABLE</td><td>409</td></tr><tr><td>VAL-FP-ORG-006-001</td><td>公司余额不足</td><td>COMPANY_CREDIT_INSUFFICIENT</td><td>409</td></tr><tr><td>VAL-FP-ORG-006-002</td><td>公司周期上限耗尽</td><td>COMPANY_PERIOD_LIMIT</td><td>429</td></tr><tr><td>VAL-FP-ORG-006-003</td><td>成员周期上限耗尽</td><td>MEMBER_PERIOD_LIMIT</td><td>429</td></tr><tr><td>VAL-FP-ORG-006-004</td><td>积分流水幂等冲突</td><td>CREDIT_SETTLEMENT_CONFLICT</td><td>409</td></tr></table>
+<tr><td>VAL-FP-ORG-001-001</td><td>公司停用</td><td>COMPANY_DISABLED</td><td>403</td></tr><tr><td>VAL-FP-ORG-002-001</td><td>成员已归档</td><td>ACCOUNT_ARCHIVED</td><td>403</td></tr><tr><td>VAL-FP-ORG-003-001</td><td>资源不属于当前公司</td><td>NOT_FOUND</td><td>404</td></tr><tr><td>VAL-FP-ORG-004-001</td><td>模型未获两级授权</td><td>MODEL_NOT_ENTITLED</td><td>403</td></tr><tr><td>VAL-FP-ORG-005-001</td><td>找不到可用供应商渠道</td><td>MODEL_ROUTE_UNAVAILABLE</td><td>409</td></tr><tr><td>VAL-FP-ORG-006-001</td><td>公司余额不足</td><td>COMPANY_CREDIT_INSUFFICIENT</td><td>409</td></tr><tr><td>VAL-FP-ORG-006-002</td><td>公司周期上限耗尽</td><td>COMPANY_PERIOD_LIMIT</td><td>429</td></tr><tr><td>VAL-FP-ORG-006-003</td><td>成员周期上限耗尽</td><td>MEMBER_PERIOD_LIMIT</td><td>429</td></tr><tr><td>VAL-FP-ORG-006-004</td><td>积分流水幂等冲突</td><td>CREDIT_SETTLEMENT_CONFLICT</td><td>409</td></tr><tr><td>VAL-FP-ORG-006-011</td><td>company+model Hard 活动暂停</td><td>MODEL_BILLING_SUSPENDED</td><td>409</td></tr><tr><td>VAL-FP-ORG-007-001</td><td>导出缺少范围、超过 31 天或超过 20000 行</td><td>EXPORT_RANGE_TOO_LARGE</td><td>400</td></tr></table>
 <p>统一判定顺序：AUTH_REQUIRED → ACCOUNT_ARCHIVED → ACCOUNT_DISABLED → COMPANY_DISABLED → MUST_CHANGE_PASSWORD → NOT_FOUND（租户资源）→ FORBIDDEN（角色）。disabled、archived 和 company disabled 均立即撤销成员会话。角色整体不可访问的接口返回 403；具体资源不属于当前公司时返回既有 NOT_FOUND 404。第三方错误、密钥和内部价格细节不下发成员。</p></section>
 
 <section id="logs"><h2>13. 日志 / 监查 / 运用设计</h2>
-<ul><li>公司创建、停用、管理员变更、成员归档、模型授权、渠道绑定、积分调整和价格发布必须审计。</li><li>公司管理员查看提示词、项目正文、生成结果或附件时记录查看人、目标成员、资源、用途和时间。</li><li>监控余额为负、预占超时、重复完成处理、结算失败、公司跨域访问拒绝、渠道路由失败和价格缺失。</li><li>积分流水首期由防篡改触发器禁止正常 DML 更新或删除，纠错只能追加；独立应用 DB 角色与 REVOKE 属部署增强。</li><li>日志禁止记录密码、会话令牌、API Key 明文、媒体 token/stream handle、预签名地址和完整供应商响应。</li></ul></section>
+<ul><li>公司创建、停用、管理员变更、成员归档、模型授权、渠道绑定、积分调整、计费模式覆盖、Hard 恢复和价格发布必须审计。</li><li>平台与公司 CSV 导出均记录操作人、数据范围、筛选条件、时间窗、结果行数和时间；审计失败不返回文件。</li><li>公司管理员查看提示词、项目正文、生成结果或附件时记录查看人、目标成员、资源、用途和时间。</li><li>监控余额为负、预占超时、重复完成处理、结算失败、公司跨域访问拒绝、渠道路由失败和价格缺失。</li><li>积分流水首期由防篡改触发器禁止正常 DML 更新或删除，纠错只能追加；独立应用 DB 角色与 REVOKE 属部署增强。</li><li>日志禁止记录密码、会话令牌、API Key 明文、媒体 token/stream handle、预签名地址和完整供应商响应。</li></ul></section>
 
 <section id="external"><h2>14. 外部接口 / 文件 / 批处理 / 通知</h2>
-<table><tr><th>对象</th><th>设计</th></tr><tr><td>供应商 API</td><td>保持现有适配器；新增标准化实际用量，estimated 明确标记且最多结算预占额</td></tr><tr><td>周期窗口</td><td>首期统一按 QUOTA_TIMEZONE 查询自然月窗口，不清零余额、不运行周期重置 Job</td></tr><tr><td>预占回收 Job</td><td>扫描超时且无活动任务的预占，按任务状态安全释放并告警</td></tr><tr><td>通知</td><td><span class="badge assume">推定</span> 公司余额或周期用量达到 80%、100% 时站内提醒公司管理员</td></tr><tr><td>导出</td><td>公司用量 CSV 同步受限导出并写审计；不含提示词和生成内容</td></tr></table></section>
+<table><tr><th>对象</th><th>设计</th></tr><tr><td>供应商 API</td><td>保持现有适配器；新增标准化实际用量，estimated 明确标记且最多结算预占额</td></tr><tr><td>生成结果下载</td><td>结果文件创建 persistent uploadId，成员通过认证同源 /uploads/{uploadId}/content 下载并固定 no-store；不下发对象存储预签名 URL</td></tr><tr><td>周期窗口</td><td>首期统一按 QUOTA_TIMEZONE 查询自然月窗口，不清零余额、不运行周期重置 Job</td></tr><tr><td>预占回收 Job</td><td>扫描超时且无活动任务的预占，按任务状态安全释放并告警</td></tr><tr><td>通知</td><td><span class="badge assume">推定</span> 公司余额或周期用量达到 80%、100% 时站内提醒公司管理员</td></tr><tr><td>导出</td><td>平台和公司用量 CSV 均要求 from/to、≤31 天、≤20000 行，超限报错不截断，复用 csvCell 防公式注入并写审计；不含提示词和生成内容</td></tr></table></section>
 
 <section id="migration"><h2>15. 数据迁移 / 初期数据 / 兼容性</h2>
-<ol><li>项目未上线，直接采用新结构建表；users.company_id 列可空并通过角色条件 CHECK 强制普通用户非空、平台管理员为空，不编写旧字段兼容、回填或双路径分支。</li><li>开发/测试数据库通过 seed 重建平台管理员、公司、公司管理员和成员。</li><li>seed 显式初始化公司模型授权、供应商渠道绑定、首个价格版本和 0 余额积分账户。</li><li>不创建个人组织；平台管理员保留平台角色且 companyId 为空。</li><li>影子计费阶段不因余额为 0 阻断。</li></ol></section>
+<ol><li>项目未上线，直接采用新结构建表；users.company_id 列可空并通过角色条件 CHECK 强制普通用户非空、平台管理员为空，不编写旧字段兼容、回填或双路径分支。</li><li>开发/测试数据库通过 seed 重建平台管理员、公司、公司管理员和成员。</li><li>seed 显式初始化公司模型授权、默认模型表、供应商渠道绑定、首个价格版本、0 余额积分账户和 <code>app_settings.credit_mode=shadow</code>；公司 credit_mode_override 默认 NULL，不创建活动暂停。</li><li>不创建个人组织；平台管理员保留平台角色且 companyId 为空。</li><li>影子计费阶段不因余额为 0 阻断。</li></ol></section>
 
 <section id="test"><h2>16. 测试设计观点</h2>
 <table><tr><th>测试 ID</th><th>观点</th></tr><tr><td>TEST-FP-ORG-001-001</td><td>公司启停、成员会话撤销、运行中任务策略</td></tr><tr><td>TEST-FP-ORG-002-001</td><td>唯一公司、角色边界、归档后不可登录且历史仍可查</td></tr><tr><td>TEST-FP-ORG-003-001</td><td>所有业务资源跨公司访问、列表过滤、对象存储访问</td></tr><tr><td>TEST-FP-ORG-004-001</td><td>平台/公司/成员模型交集和授权回收</td></tr><tr><td>TEST-FP-ORG-005-001</td><td>专属渠道优先、公共回退、密钥脱敏和禁权</td></tr><tr><td>TEST-FP-ORG-006-001</td><td>并发预占、重复完成处理、成功结算、失败退款、余额不为负</td></tr><tr><td>TEST-FP-ORG-007-001</td><td>三类角色用量范围、敏感查看审计、初始化与回滚</td></tr></table></section>
