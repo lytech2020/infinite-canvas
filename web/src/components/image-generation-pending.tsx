@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { LoaderCircle } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { formatDuration } from "@/lib/image-utils";
 import { cn } from "@/lib/utils";
 
-const pendingMessages = ["正在创建图片", "马上就好了", "再等等", "正在整理细节"];
-
 export function ImageGenerationPending({ className, label, compact = false }: { className?: string; label?: string; compact?: boolean }) {
+    const { t } = useTranslation("image");
+    const pendingMessages = t("pendingMessages", { returnObjects: true }) as unknown as string[];
     const [tick, setTick] = useState(0);
 
     useEffect(() => {

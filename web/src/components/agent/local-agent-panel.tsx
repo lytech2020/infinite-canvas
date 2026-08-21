@@ -3,8 +3,10 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { App, Button, Tooltip } from "antd";
 import dayjs from "dayjs";
 import { Bot, History, MessageSquare, PanelRightClose, PlugZap, Plus, Terminal } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { canvasThemes } from "@/lib/canvas-theme";
+import { localizeAgentText } from "@/i18n/agent-text";
 import { imageMetadata } from "@/lib/canvas/canvas-node-factory";
 import { fitNodeSize } from "@/lib/canvas/canvas-node-size";
 import { readImageMeta } from "@/lib/image-utils";
@@ -67,7 +69,6 @@ const DEFAULT_AGENT_URL = "http://127.0.0.1:17371";
 const AGENT_PROTOCOL_VERSION = 3;
 const HISTORY_RETRY_DELAYS_MS = [0, 150, 350, 700, 1200];
 const AGENT_REASONING_EFFORTS = new Set<AgentReasoningEffort>(["minimal", "low", "medium", "high", "xhigh", "max", "ultra"]);
-const AGENT_REASONING_LABELS: Record<AgentReasoningEffort, string> = { minimal: "最低", low: "轻度", medium: "中", high: "高", xhigh: "极高", max: "最高", ultra: "Ultra" };
 
 type AgentWorkspace = { workspacePath: string; activeThreadId?: string };
 type AgentThreadsResponse = { ok?: boolean; workspace?: AgentWorkspace; data?: AgentThreadSummary[] };
@@ -87,6 +88,7 @@ function authoritativeHistoryTurnKeys(threadId: string, settledTurnIds: string[]
 }
 
 export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?: boolean; headless?: boolean; autoConnect?: boolean }) {
+    const { t } = useTranslation("agent");
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const { message, modal } = App.useApp();
     const [searchParams] = useSearchParams();
@@ -282,8 +284,6 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
 
     useEffect(() => {
         if (!clientReady || !enabled || !token.trim()) return;
-        localStorage.setItem("canvas-agent-url", endpoint);
-        localStorage.setItem("canvas-agent-token", token);
         const clientId = clientIdRef.current;
         let disposed = false;
         let protocolRejected = false;
@@ -336,7 +336,7 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
                 messages,
                 pendingApprovals,
             });
-            if (!headless) message.success("本地 Agent 已连接");
+            if (!headless) message.success(t("local.connected"));
             void postState(endpoint, token, clientId, canvasContextRef.current?.snapshot || null);
             if (document.visibilityState === "visible" && document.hasFocus()) void activateAgentClient(endpoint, token, clientId);
             if (!busy && !nextThreadId) {
@@ -556,8 +556,6 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
             const savedEffort = useAgentStore.getState().reasoningEffort;
             const efforts = current.supportedReasoningEfforts.map((item) => item.reasoningEffort);
             const nextEffort = efforts.includes(savedEffort as AgentReasoningEffort) ? savedEffort as AgentReasoningEffort : current.defaultReasoningEffort || efforts[0];
-            localStorage.setItem("canvas-agent-model", current.model);
-            localStorage.setItem("canvas-agent-reasoning-effort", nextEffort);
             setAgentState({ models, model: current.model, reasoningEffort: nextEffort });
         }).catch((error) => addEventLog("读取模型列表失败", error));
     }, [connected, endpoint, setAgentState, token]);
@@ -596,7 +594,7 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
         try {
             if (files.length) await savePendingAgentUserMessage({ id: messageId, role: "user", text: userText, historyText: requestPrompt, attachments: files });
             const modelName = models.find((item) => item.model === model)?.displayName || model || "默认模型";
-            const effortName = reasoningEffort ? AGENT_REASONING_LABELS[reasoningEffort] : "默认强度";
+            const effortName = reasoningEffort ? t(`composer.${reasoningEffort}`) : t("composer.medium");
             addEventLog("发送任务", `${modelName} · ${effortName}${files.length ? ` · 附件 ${files.length}` : ""} · ${compactText(text) || "仅附件"}`);
             const accepted = await fetchAgentJson<AgentTurnResponse>(endpoint, token, "/agent/codex/turn", {
                 method: "POST",
@@ -618,7 +616,7 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
             if (files.length) {
                 const latestMessage = useAgentStore.getState().messages.find((item) => item.clientMessageId === messageId);
                 const acceptedThreadId = latestMessage?.threadId || threadId;
-                await bindPendingAgentUserMessage(acceptedThreadId, messageId, latestMessage?.turnId || "").catch((error) => addEventLog("保存附件历史失败", error));
+                await bindPendingAgentUserMessage(acceptedThreadId, messageId, latestMessage?.turnId || "").catch((error) => addEventLog(t("local.saveAttachmentHistoryFailed"), error));
             }
             files.forEach((item) => {
                 URL.revokeObjectURL(item.url);
@@ -719,7 +717,7 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
                 addEventLog(toolName(payload.name), payload, payload);
                 const result = await runSiteTool(payload.name, payload.input || {}, navigate, { canvasSnapshot: canvasContextRef.current?.snapshot || null });
                 await postToolResult(endpoint, token, clientIdRef.current, { requestId: payload.requestId, result });
-                addEventLog(`${toolName(payload.name)}完成`, result, result);
+                addEventLog(t("events.toolDone", { name: toolName(payload.name) }), result, result);
             } catch (error) {
                 const message = error instanceof Error ? error.message : "工具执行失败";
                 await postToolResult(endpoint, token, clientIdRef.current, { requestId: payload.requestId, error: message });
@@ -752,7 +750,7 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
                 result = snapshot;
             }
             await postToolResult(endpoint, token, clientIdRef.current, { requestId: payload.requestId, result });
-            addEventLog(`${toolName(payload.name)}完成`, result, result);
+            addEventLog(t("events.toolDone", { name: toolName(payload.name) }), result, result);
         } catch (error) {
             const message = error instanceof Error ? error.message : "画布操作失败";
             await postToolResult(endpoint, token, clientIdRef.current, { requestId: payload.requestId, error: message });
@@ -793,22 +791,21 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
             setAgentState({ pendingApprovals, activity: approvalActivity(pendingApprovals, latest.waiting, latest.activity) });
             if (resolved) return;
             addEventLog("权限审批失败", error);
-            message.error(error instanceof Error ? error.message : "权限审批失败");
+            message.error(error instanceof Error ? error.message : t("local.approvalFailed"));
         }
     };
 
     const changePermissionMode = (nextMode: AgentPermissionMode) => {
         const apply = () => {
-            localStorage.setItem("canvas-agent-permission-mode", nextMode);
             setAgentState({ permissionMode: nextMode });
         };
         if (nextMode !== "full") return apply();
         modal.confirm({
-            title: "启用完全访问权限",
-            content: "Codex 将不受沙箱限制，可访问互联网及本机任意文件。请仅在信任当前任务时使用。",
-            okText: "启用完全访问",
+            title: t("panel.fullAccessTitle"),
+            content: t("panel.fullAccessDescription"),
+            okText: t("panel.enableFullAccess"),
             okType: "danger",
-            cancelText: "取消",
+            cancelText: t("panel.cancel"),
             onOk: apply,
         });
     };
@@ -917,7 +914,7 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
         } catch (error) {
             setAgentState({ bootstrapStatus: { key: "codex:prepare_failed", text: "Codex 对话初始化失败", detail: error instanceof Error ? error.message : "无法创建 Codex 会话", status: "error" } });
             addEventLog("新建对话失败", error);
-            message.error(error instanceof Error ? error.message : "新建对话失败");
+            message.error(error instanceof Error ? error.message : t("local.newChatFailed"));
             await loadThreads();
         } finally {
             finishThreadOperation(operation);
@@ -934,7 +931,7 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
             if (useAgentStore.getState().activeThreadId === threadId) setAgentState({ activeTab: "chat", activity: "已恢复会话" });
         } catch (error) {
             addEventLog("恢复对话失败", error);
-            message.error(error instanceof Error ? error.message : "恢复对话失败");
+            message.error(error instanceof Error ? error.message : t("local.resumeFailed"));
             await loadThreads();
         } finally {
             finishThreadOperation(operation);
@@ -953,14 +950,14 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
             }
             void deleteAgentThreadMessages(deletedThreadIds).catch(() => undefined);
             await loadThreads();
-            message.success(`已删除 ${deletedThreadIds.length} 条记录`);
+            message.success(t("panel.deletedRecords", { count: deletedThreadIds.length }));
         } catch (error) {
             if (deletedThreadIds.length) {
                 void deleteAgentThreadMessages(deletedThreadIds).catch(() => undefined);
             }
             await loadThreads();
             addEventLog("删除对话失败", error);
-            message.error(error instanceof Error ? error.message : "删除对话失败");
+            message.error(error instanceof Error ? error.message : t("panel.deleteFailed"));
         } finally {
             finishThreadOperation(operation);
         }
@@ -968,11 +965,11 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
 
     const confirmDeleteThreads = (threadIds: string[]) => {
         modal.confirm({
-            title: `删除 ${threadIds.length} 条对话记录`,
-            content: "删除后无法恢复，确定继续吗？",
-            okText: "删除",
+            title: t("panel.deleteTitle", { count: threadIds.length }),
+            content: t("panel.deleteDescription"),
+            okText: t("panel.delete"),
             okType: "danger",
-            cancelText: "取消",
+            cancelText: t("panel.cancel"),
             onOk: () => deleteThreads(threadIds),
         });
     };
@@ -1213,10 +1210,10 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
                     </div>
                 }
                 items={[
-                    { value: "setup", label: "连接", icon: <PlugZap className="size-3.5" /> },
-                    { value: "chat", label: "对话", icon: <MessageSquare className="size-3.5" /> },
-                    { value: "history", label: "历史", icon: <History className="size-3.5" />, count: threads.length },
-                    { value: "log", label: "日志", icon: <Terminal className="size-3.5" />, count: eventLogs.length },
+                    { value: "setup", label: t("panel.connection"), icon: <PlugZap className="size-3.5" /> },
+                    { value: "chat", label: t("panel.chat"), icon: <MessageSquare className="size-3.5" /> },
+                    { value: "history", label: t("panel.history"), icon: <History className="size-3.5" />, count: threads.length },
+                    { value: "log", label: t("panel.logs"), icon: <Terminal className="size-3.5" />, count: eventLogs.length },
                 ]}
                 onChange={(activeTab) => {
                     setAgentState({ activeTab });
@@ -1225,9 +1222,9 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
                 right={
                     <>
                         <Button size="small" type="text" disabled={!connected || loadingThreads || sending || waiting} icon={<Plus className="size-3.5" />} onClick={startNewThread}>
-                            新对话
+                            {t("panel.newChat")}
                         </Button>
-                        <Tooltip title="收起对话">
+                        <Tooltip title={t("panel.collapse")}>
                             <Button type="text" shape="circle" className="!h-8 !w-8 !min-w-8" style={{ color: theme.node.muted }} icon={<PanelRightClose className="size-4" />} onClick={closePanel} />
                         </Tooltip>
                     </>
@@ -1241,8 +1238,8 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
                     token={token}
                     enabled={enabled}
                     connected={connected}
-                    activity={activity}
-                    connectError={connectError}
+                    activity={localizeAgentText(activity)}
+                    connectError={localizeAgentText(connectError)}
                     onUrlChange={(url) => setAgentState({ url, connectError: "" })}
                     onTokenChange={(token) => setAgentState({ token, connectError: "" })}
                     onToggleEnabled={toggleAgentConnection}
@@ -1265,7 +1262,7 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
                 <AgentLogView
                     logs={eventLogs}
                     theme={theme}
-                    context={{ endpoint, connected, enabled, activity, waiting, sending, messages: messageCount, pendingTool: pendingTool?.name }}
+                    context={{ endpoint, connected, enabled, activity: localizeAgentText(activity), waiting, sending, messages: messageCount, pendingTool: pendingTool?.name }}
                     onClear={clearEventLogs}
                     onCopied={(text) => message.success(text)}
                     onCopyBlocked={(text) => message.warning(text)}
@@ -1280,7 +1277,7 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
                         attachments={attachments.map(agentAttachmentToChatAttachment)}
                         disabled={!connected || agentInitializing}
                         sending={sending || waiting}
-                        placeholder={agentInitializing ? "MCP 初始化中，完成后即可发送" : "询问 Codex，或让它操作网站/画布"}
+                        placeholder={t(agentInitializing ? "panel.initializingPlaceholder" : "panel.placeholder")}
                         theme={theme}
                         onPromptChange={(prompt) => setAgentState({ prompt })}
                         onSubmit={sendPrompt}
@@ -1298,12 +1295,9 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
                             const selected = models.find((item) => item.model === model);
                             if (!selected) return;
                             const effort = selected.defaultReasoningEffort || selected.supportedReasoningEfforts[0]?.reasoningEffort;
-                            localStorage.setItem("canvas-agent-model", model);
-                            if (effort) localStorage.setItem("canvas-agent-reasoning-effort", effort);
                             setAgentState({ model, ...(effort ? { reasoningEffort: effort } : {}) });
                         }}
                         onReasoningEffortChange={(reasoningEffort) => {
-                            localStorage.setItem("canvas-agent-reasoning-effort", reasoningEffort);
                             setAgentState({ reasoningEffort });
                         }}
                         left={

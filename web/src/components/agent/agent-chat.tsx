@@ -1,7 +1,9 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, useSpring, useTransform } from "motion/react";
+import { useTranslation } from "react-i18next";
 
 import { canvasThemes } from "@/lib/canvas-theme";
+import { localizeAgentText } from "@/i18n/agent-text";
 import { summarizeCanvasAgentOps } from "@/lib/canvas/canvas-agent-ops";
 import { useAgentStore, type AgentChatItem, type AgentPendingApproval, type AgentPendingToolCall, type AgentTokenUsage } from "@/stores/use-agent-store";
 import { AgentApprovalCard, AgentChatMessage, AgentCommandGroup, AgentPendingToolCard, AgentToolCard, AgentWorkingMessage } from "./agent-chat-message";
@@ -30,6 +32,7 @@ export function AgentChatTimeline({
     onApproveTool: () => void;
     onApprovalDecision: (approval: AgentPendingApproval, decision: "accept" | "acceptForSession" | "decline") => void;
 }) {
+    const { t } = useTranslation("agent");
     const messages = useAgentStore((state) => state.messages);
     const bootstrapStatus = useAgentStore((state) => state.bootstrapStatus);
     const mcpStartupStatuses = useAgentStore((state) => state.mcpStartupStatuses);
@@ -89,22 +92,23 @@ export function AgentChatTimeline({
                         />
                     ) : null}
                     {pendingApprovals.map((approval) => <AgentApprovalCard key={approval.requestId} approval={approval} theme={theme} onDecision={(decision) => onApprovalDecision(approval, decision)} />)}
-                    {(sending || waiting || bootstrapStatus) && !streaming && !pendingTool && !pendingApprovals.length ? <AgentWorkingMessage text={working.text} detail={"detail" in working ? working.detail : undefined} status={bootstrapStatus?.status} mcpStatuses={Object.entries(mcpStartupStatuses).map(([name, item]) => ({ name, ...item }))} activityKey={working.key} theme={theme} /> : null}
+                    {(sending || waiting || bootstrapStatus) && !streaming && !pendingTool && !pendingApprovals.length ? <AgentWorkingMessage text={localizeAgentText(working.text)} detail={"detail" in working ? localizeAgentText(working.detail || "") : undefined} status={bootstrapStatus?.status} mcpStatuses={Object.entries(mcpStartupStatuses).map(([name, item]) => ({ name, ...item, detail: localizeAgentText(item.detail) }))} activityKey={working.key} theme={theme} /> : null}
                 </div>
             </div>
             {showScrollToBottom ? (
-                <AgentScrollToBottom theme={theme} title="查看最新消息" onClick={() => scrollToBottom()} />
+                <AgentScrollToBottom theme={theme} title={t("chat.latest")} onClick={() => scrollToBottom()} />
             ) : null}
         </div>
     );
 }
 
 export function AgentTaskProgress({ theme, busy }: { theme: (typeof canvasThemes)[keyof typeof canvasThemes]; busy: boolean }) {
+    const { t } = useTranslation("agent");
     const plan = useAgentStore((state) => busy ? currentPlanMessage(state.messages) : latestPlanMessage(state.messages));
     if (!plan) return null;
     return (
         <div className="shrink-0 px-4 pt-2">
-            <AgentToolCard key={plan.id} title={plan.title || "任务进度"} text={plan.text} detail={plan.detail} theme={theme} />
+            <AgentToolCard key={plan.id} title={plan.title || t("chat.taskProgress")} text={plan.text} detail={plan.detail} theme={theme} />
         </div>
     );
 }
@@ -158,12 +162,13 @@ function isCommandMessage(item: AgentChatItem) {
 }
 
 export function AgentUsageBar({ usage, theme }: { usage: AgentTokenUsage; theme: (typeof canvasThemes)[keyof typeof canvasThemes] }) {
+    const { t } = useTranslation("agent");
     return (
         <div className="flex items-center justify-center gap-4 px-4 pt-1 text-[11px] tabular-nums" style={{ color: theme.node.muted }}>
-            <span className="opacity-70">最新调用</span>
-            <UsageNumber label="输入" value={usage.input} color={theme.node.text} />
-            <UsageNumber label="缓存" value={usage.cached} color={theme.node.text} />
-            <UsageNumber label="输出" value={usage.output} color={theme.node.text} />
+            <span className="opacity-70">{t("chat.latestCall")}</span>
+            <UsageNumber label={t("chat.input")} value={usage.input} color={theme.node.text} />
+            <UsageNumber label={t("chat.cached")} value={usage.cached} color={theme.node.text} />
+            <UsageNumber label={t("chat.output")} value={usage.output} color={theme.node.text} />
         </div>
     );
 }

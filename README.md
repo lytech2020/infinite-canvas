@@ -19,13 +19,13 @@
 </p>
 
 <p align="center">
-  <a href="docs/content/docs/overview/quick-start.mdx">快速开始</a> · <a href="docs/content/docs/overview/features.mdx">功能介绍</a> · <a href="docs/content/docs/overview/render.mdx">Render 部署</a> · <a href="docs/content/docs/overview/docker.mdx">Docker 部署</a> · <a href="docs/content/docs/canvas/canvas-node-manual.mdx">画布节点操作手册</a> · <a href="docs/content/docs/canvas/canvas-shortcuts.mdx">画布快捷键</a> · <a href="CLA.md">贡献者协议</a> · <a href="SECURITY.md">漏洞提交</a> · <a href="docs/content/docs/progress/todo.mdx">待办事项</a> · <a href="canvas-agent/README.md">本地 Canvas Agent</a> · <a href="plugins/infinite-canvas">Codex app 插件</a>
+  <a href="docs/content/docs/v1/overview/quick-start.mdx">快速开始</a> · <a href="docs/content/docs/v1/overview/features.mdx">功能介绍</a> · <a href="docs/content/docs/v1/overview/render.mdx">Render 部署</a> · <a href="docs/content/docs/v1/overview/docker.mdx">Docker 部署</a> · <a href="docs/content/docs/v1/canvas/canvas-node-manual.mdx">画布节点操作手册</a> · <a href="docs/content/docs/v1/canvas/canvas-shortcuts.mdx">画布快捷键</a> · <a href="CLA.md">贡献者协议</a> · <a href="SECURITY.md">漏洞提交</a> · <a href="docs/content/docs/v1/progress/todo.mdx">待办事项</a> · <a href="canvas-agent/README.md">本地 Canvas Agent</a> · <a href="plugins/infinite-canvas">Codex app 插件</a>
 </p>
 
 无限画布是一款面向图片创作的开源工作台。它把画布编排、AI 图片生成、参考图编辑、对话助手、提示词库和素材沉淀放在同一个界面里，适合用来探索视觉方案并连续迭代图片结果。
 
 > [!CAUTION]
-> 项目目前处于开发阶段，不保证历史数据兼容。各种本地存储格式都可能直接调整，欢迎关注后续更新。
+> 项目目前处于开发阶段，不保证历史数据兼容，数据库结构可能直接调整，欢迎关注后续更新。
 >
 > 如果你需要稳定维护自己的分支，建议自行 fork 后独立开发。二次开发与 PR 请保留原作者信息和前端页面标识。
 
@@ -51,15 +51,15 @@
 - Codex App 插件：提供 Codex app 插件，安装后会自动注册 MCP 并尝试拉起本地 Agent。
 - 插件系统：支持通过 URL 动态安装 / 启用 / 更新 / 卸载远程节点插件，并提供 TypeScript SDK 自行开发画布节点插件。
 - 自定义接口调用：可自定义生图 / 视频接口的调用方式，灵活适配各类中转站与自建服务。
-- 提示词库：浏览器前端直连多个 GitHub 开源项目，并缓存到 IndexedDB。
+- 提示词库：浏览器前端直连多个 GitHub 开源项目，并在当前会话中缓存。
 
-完整功能说明见 [功能介绍](docs/content/docs/overview/features.mdx)。
+完整功能说明见 [功能介绍](docs/content/docs/v1/overview/features.mdx)。
 
 如果你在为担心没有合适的生图API来发愁，可以查看该免费生图项目：[chatgpt2api](https://github.com/basketikun/chatgpt2api)
 
 ## 快速开始
 
-AI API Key、Base URL、画布、素材和生成记录默认保存在浏览器本地。
+画布、素材、生成记录和关联媒体按登录账号保存在 PostgreSQL 与对象存储中；AI 渠道密钥由管理后台加密保存。
 
 ### 本地开发
 
@@ -76,7 +76,8 @@ bun run dev
 ```bash
 git clone git@github.com:basketikun/infinite-canvas.git
 cd infinite-canvas
-docker compose up -d
+cp .env.example .env
+docker compose up -d --build
 ```
 
 运行后默认端口3000，可访问 `http://localhost:3000`。

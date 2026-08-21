@@ -1,4 +1,5 @@
 import { PLUGIN_REGISTRY_URL } from "@/constant/env";
+import { errorText } from "@/i18n/error-text";
 
 // 官方插件清单里的一条(entry 已解析成绝对 URL)
 export type OfficialPluginEntry = {
@@ -16,19 +17,17 @@ type RawManifest = { plugins?: RawEntry[] };
 // 拉取官方插件清单;entry(相对文件名)按清单地址解析成绝对 URL,再走既有 URL 安装流程
 export async function fetchOfficialPlugins(registryUrl: string = PLUGIN_REGISTRY_URL): Promise<OfficialPluginEntry[]> {
     const response = await fetch(registryUrl, { headers: { accept: "application/json" } });
-    if (!response.ok) throw new Error(`获取官方插件列表失败 (HTTP ${response.status})`);
+    if (!response.ok) throw new Error(errorText("officialPluginsFailed", { status: response.status }));
     const data = (await response.json()) as RawManifest;
     const list = Array.isArray(data?.plugins) ? data.plugins : [];
+    const registry = new URL(registryUrl, window.location.origin);
     return list
         .filter((item): item is RawEntry & { id: string } => Boolean(item && item.id && (item.entry || item.url)))
-        .map((item) => ({
-            id: item.id,
-            name: item.name || item.id,
-            version: item.version || "0.0.0",
-            description: item.description,
-            icon: item.icon,
-            url: item.url ? item.url : new URL(item.entry as string, registryUrl).toString(),
-        }));
+        .flatMap((item) => {
+            const url = new URL(item.url || (item.entry as string), registry);
+            if (url.origin !== registry.origin || !url.pathname.startsWith(registry.pathname.slice(0, registry.pathname.lastIndexOf("/") + 1))) return [];
+            return [{ id: item.id, name: item.name || item.id, version: item.version || "0.0.0", description: item.description, icon: item.icon, url: url.toString() }];
+        });
 }
 
 // 语义化版本比较:返回 >0 表示 a 更高,<0 表示 b 更高,0 表示相等。

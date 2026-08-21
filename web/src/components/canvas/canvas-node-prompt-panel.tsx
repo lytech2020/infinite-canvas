@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ArrowUp, LoaderCircle, Square } from "lucide-react";
 import { Button } from "antd";
+import { useTranslation } from "react-i18next";
 
 import { ModelPicker } from "@/components/model-picker";
 import { defaultConfig, resolveModelForCapability, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
@@ -30,6 +31,7 @@ type CanvasNodePromptPanelProps = {
 };
 
 export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfigChange, onGenerate, onStop, mentionReferences = [], onImageSettingsOpenChange, modeOverride }: CanvasNodePromptPanelProps) {
+    const { t } = useTranslation("canvas");
     const globalConfig = useEffectiveConfig();
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
@@ -37,7 +39,6 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
     const config = buildNodeConfig(globalConfig, node, mode);
     const hasTextContent = node.type === CanvasNodeType.Text && Boolean(node.metadata?.content?.trim());
     const hasImageContent = node.type === CanvasNodeType.Image && Boolean(node.metadata?.content);
-    const isEditingExistingContent = hasTextContent || hasImageContent;
     const [prompt, setPrompt] = useState(node.metadata?.prompt || "");
 
     // 仅在切换到其它节点时恢复对应提示词;同一节点生成完成后继续保留当前输入。
@@ -48,7 +49,8 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
 
     const updatePrompt = (value: string) => {
         setPrompt(value);
-        if (!isEditingExistingContent) onPromptChange(node.id, value);
+        // 已有内容的节点同样写回:「重生成」读的是 metadata.prompt,不写回就会拿到上一轮的旧提示词
+        onPromptChange(node.id, value);
     };
 
     const submit = () => {
@@ -73,7 +75,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                 onSubmit={submit}
                 className="thin-scrollbar h-40 w-full cursor-text resize-none rounded-xl px-3 py-2 text-sm leading-5 outline-none"
                 style={{ background: "transparent", color: theme.node.text }}
-                placeholder={promptPlaceholder(mode, hasImageContent, hasTextContent)}
+                placeholder={promptPlaceholder(t, mode, hasImageContent, hasTextContent)}
             />
 
             <div className="mt-2 flex min-w-0 items-center justify-between gap-2">
@@ -114,14 +116,14 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                     danger={isRunning}
                     disabled={!isRunning && !prompt.trim()}
                     onClick={() => (isRunning ? onStop(node.id) : submit())}
-                    aria-label={isRunning ? "停止生成" : "生成"}
+                    aria-label={isRunning ? t("generation.stop") : t("generation.generate")}
                 >
                     <span className="flex items-center gap-1.5">
                         {isRunning ? (
                             <>
                                 <LoaderCircle className="size-4 animate-spin" />
                                 <Square className="size-3.5 fill-current" />
-                                <span className="text-xs font-medium">停止</span>
+                                <span className="text-xs font-medium">{t("generation.stopShort")}</span>
                             </>
                         ) : (
                             <ArrowUp className="size-4" />
@@ -157,11 +159,11 @@ function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: Can
     };
 }
 
-function promptPlaceholder(mode: CanvasNodeGenerationMode, hasImageContent: boolean, hasTextContent: boolean) {
-    if (mode === "video") return "描述要生成的视频内容";
-    if (mode === "audio") return "描述要生成的音频内容";
-    if (mode === "image") return hasImageContent ? "请输入你想要把这张图修改成什么" : "描述要生成的图片内容";
-    return hasTextContent ? "请输入你想要将本段文本修改成什么" : "请输入你想要生成的文本内容";
+function promptPlaceholder(t: (key: string) => string, mode: CanvasNodeGenerationMode, hasImageContent: boolean, hasTextContent: boolean) {
+    if (mode === "video") return t("generation.videoPlaceholder");
+    if (mode === "audio") return t("generation.audioPlaceholder");
+    if (mode === "image") return t(hasImageContent ? "generation.editImagePlaceholder" : "generation.imagePlaceholder");
+    return t(hasTextContent ? "generation.editTextPlaceholder" : "generation.textPlaceholder");
 }
 
 function videoConfigPatch(key: keyof AiConfig, value: string) {

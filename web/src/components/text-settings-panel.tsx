@@ -1,6 +1,8 @@
 import { type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 
 import { ImageSettingsTheme } from "@/components/image-settings-panel";
+import i18n from "@/i18n";
 import { type CanvasTheme } from "@/lib/canvas-theme";
 import type { AiConfig, ReasoningEffort } from "@/stores/use-config-store";
 
@@ -20,18 +22,19 @@ type TextSettingsPanelProps = {
 };
 
 export function TextSettingsPanel({ config, onConfigChange, theme, className = "space-y-4" }: TextSettingsPanelProps) {
+    const { t } = useTranslation("settings");
     return (
         <ImageSettingsTheme theme={theme}>
             <div className={className} style={{ color: theme.node.text }} onMouseDown={(event) => event.stopPropagation()}>
-                <div className="text-lg font-semibold">文本设置</div>
+                <div className="text-lg font-semibold">{t("text.title")}</div>
                 <div className="space-y-2.5">
                     <div className="text-sm font-medium" style={{ color: theme.node.muted }}>
-                        推理强度
+                        {t("text.reasoning")}
                     </div>
                     <div className="grid grid-cols-5 gap-2">
                         {reasoningEffortOptions.map((item) => (
                             <OptionPill key={item.value} selected={config.reasoningEffort === item.value} theme={theme} onClick={() => onConfigChange("reasoningEffort", item.value)}>
-                                {item.label}
+                                {reasoningEffortLabel(item.value)}
                             </OptionPill>
                         ))}
                     </div>
@@ -42,7 +45,8 @@ export function TextSettingsPanel({ config, onConfigChange, theme, className = "
 }
 
 export function reasoningEffortLabel(value: ReasoningEffort) {
-    return reasoningEffortOptions.find((item) => item.value === value)?.label || value;
+    const keys: Record<ReasoningEffort, string> = { auto: "auto", low: "low", medium: "medium", high: "high", xhigh: "extraHigh" };
+    return i18n.t(keys[value], { ns: "settings" });
 }
 
 function OptionPill({ selected, theme, onClick, children }: { selected: boolean; theme: CanvasTheme; onClick: () => void; children: ReactNode }) {

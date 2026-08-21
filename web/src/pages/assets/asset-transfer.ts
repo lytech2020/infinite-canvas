@@ -1,8 +1,8 @@
 import { saveAs } from "file-saver";
 
 import { createZip, readZip } from "@/lib/zip";
-import { getMediaBlob, setMediaBlob } from "@/services/file-storage";
-import { getImageBlob, setImageBlob } from "@/services/image-storage";
+import { getMediaBlob, importMediaBlob } from "@/services/file-storage";
+import { getImageBlob, importImageBlob } from "@/services/image-storage";
 import type { Asset } from "@/stores/use-asset-store";
 
 type AssetExportFile = {
@@ -47,15 +47,24 @@ export async function readAssetPackage(file: File) {
     const assetFile = zip.get("assets.json");
     if (!assetFile) throw new Error("missing assets.json");
     const data = JSON.parse(await assetFile.text()) as AssetExportFile;
+    const fileMap = new Map<string, { storageKey: string; url: string }>();
     await Promise.all(
         data.files.map(async (item) => {
             const blob = zip.get(item.path);
             if (!blob) return;
             const typedBlob = blob.type ? blob : blob.slice(0, blob.size, item.mimeType);
-            await (item.storageKey.startsWith("image:") ? setImageBlob(item.storageKey, typedBlob) : setMediaBlob(item.storageKey, typedBlob));
+            const stored = item.mimeType.startsWith("image/") ? await importImageBlob(typedBlob) : await importMediaBlob(typedBlob);
+            fileMap.set(item.storageKey, { storageKey: stored.storageKey, url: stored.url });
         }),
     );
-    return data.assets;
+    return data.assets.map((asset) => {
+        if (asset.kind !== "image" && asset.kind !== "video") return asset;
+        const mapped = asset.data.storageKey ? fileMap.get(asset.data.storageKey) : undefined;
+        if (!mapped) return asset;
+        return asset.kind === "image"
+            ? { ...asset, coverUrl: mapped.url, data: { ...asset.data, storageKey: mapped.storageKey, dataUrl: mapped.url } }
+            : { ...asset, coverUrl: mapped.url, data: { ...asset.data, storageKey: mapped.storageKey, url: mapped.url } };
+    });
 }
 
 function safeFileName(value: string) {

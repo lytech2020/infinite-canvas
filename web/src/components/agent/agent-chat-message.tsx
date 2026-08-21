@@ -2,30 +2,34 @@ import { useEffect, useId, useState, type ReactNode } from "react";
 import { App, Button, Image, Modal } from "antd";
 import { Brain, CheckCircle2, ChevronDown, ChevronRight, Circle, CircleAlert, Copy, ExternalLink, FilePenLine, FileText, FolderOpen, ListChecks, LoaderCircle, Search, ShieldAlert, TerminalSquare, Wrench, XCircle } from "lucide-react";
 import { Streamdown, type LinkSafetyModalProps } from "streamdown";
+import { useTranslation } from "react-i18next";
 
 import { useCopyText } from "@/hooks/use-copy-text";
+import i18n from "@/i18n";
+import { localizeAgentText } from "@/i18n/agent-text";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { useAgentStore, type AgentPendingApproval } from "@/stores/use-agent-store";
 import { revealAgentLocalFile } from "./agent-api";
 
-const streamdownProps = {
+const streamdownProps = () => ({
     className: "agent-streamdown",
     controls: { code: { copy: true, download: false }, table: { copy: true, download: false, fullscreen: false } },
     linkSafety: { enabled: true, renderModal: (props: LinkSafetyModalProps) => <AgentLinkModal {...props} /> },
     lineNumbers: false,
     translations: {
-        close: "关闭",
-        copied: "已复制",
-        copyCode: "复制代码",
-        copyLink: "复制链接",
-        externalLinkWarning: "即将打开以下外部链接，请确认链接可信。",
-        openExternalLink: "打开外部链接？",
-        openLink: "继续打开",
+        close: i18n.t("message.close", { ns: "agent" }),
+        copied: i18n.t("message.copied", { ns: "agent" }),
+        copyCode: i18n.t("message.copyCode", { ns: "agent" }),
+        copyLink: i18n.t("message.copyLink", { ns: "agent" }),
+        externalLinkWarning: i18n.t("message.externalWarning", { ns: "agent" }),
+        openExternalLink: i18n.t("message.openExternal", { ns: "agent" }),
+        openLink: i18n.t("message.openLink", { ns: "agent" }),
     },
-} as const;
+} as const);
 const streamdownAnimation = { duration: 20, stagger: 0, sep: "word" } as const;
 
 function AgentLinkModal({ isOpen, onClose, onConfirm, url }: LinkSafetyModalProps) {
+    const { t } = useTranslation("agent");
     const { message } = App.useApp();
     const copyText = useCopyText();
     const localPath = localFilePath(url);
@@ -36,26 +40,26 @@ function AgentLinkModal({ isOpen, onClose, onConfirm, url }: LinkSafetyModalProp
         setOpening(true);
         try {
             await revealAgentLocalFile(endpoint, token, localPath);
-            message.success("已在文件管理器中定位");
+            message.success(t("message.revealed"));
             onClose();
         } catch (error) {
-            message.error(error instanceof Error ? error.message : "无法打开本地文件");
+            message.error(error instanceof Error ? error.message : t("message.revealFailed"));
         } finally {
             setOpening(false);
         }
     };
     return (
-        <Modal open={isOpen} onCancel={onClose} footer={null} centered width={420} title={localPath ? "打开本地文件？" : "打开外部链接？"}>
+        <Modal open={isOpen} onCancel={onClose} footer={null} centered width={420} title={t(localPath ? "message.openLocal" : "message.openExternal")}>
             <div className="text-sm text-black/55 dark:text-white/55">
-                {localPath ? "将在本机文件管理器中定位该路径，不会通过浏览器打开。" : "即将打开以下外部链接，请确认链接可信。"}
+                {t(localPath ? "message.localDescription" : "message.externalWarning")}
             </div>
             <div className="mt-4 max-h-32 overflow-auto break-all rounded-lg bg-black/[.035] px-3 py-2.5 font-mono text-xs leading-5 dark:bg-white/[.06]">{localPath || url}</div>
             <div className="mt-5 flex justify-end gap-2">
-                <Button type="text" icon={<Copy className="size-4" />} onClick={() => copyText(localPath || url, localPath ? "路径已复制" : "链接已复制")}>
-                    {localPath ? "复制路径" : "复制链接"}
+                <Button type="text" icon={<Copy className="size-4" />} onClick={() => copyText(localPath || url, t(localPath ? "message.pathCopied" : "message.linkCopied"))}>
+                    {t(localPath ? "message.copyPath" : "message.copyLink")}
                 </Button>
                 <Button type="text" loading={opening} icon={localPath ? <FolderOpen className="size-4" /> : <ExternalLink className="size-4" />} onClick={open}>
-                    {localPath ? "在文件管理器中显示" : "继续打开"}
+                    {t(localPath ? "message.showInFinder" : "message.openLink")}
                 </Button>
             </div>
         </Modal>
@@ -102,14 +106,16 @@ export type AgentChatMessageItem = {
 };
 
 export function AgentChatMessage({ item, theme, onRejectTool, onApproveTool }: { item: AgentChatMessageItem; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; onRejectTool?: (id: string) => void; onApproveTool?: (id: string) => void }) {
+    const { t } = useTranslation("agent");
     const isUser = item.role === "user";
     const isSystem = item.role === "system";
+    const displayText = item.role === "system" || item.role === "error" ? localizeAgentText(item.text) : item.text;
     const color = item.role === "error" ? "#dc2626" : item.role === "tool" ? "#2563eb" : theme.node.text;
     if (isSystem) {
         return (
             <div className="flex justify-center text-xs">
                 <div className="max-w-[88%] px-3 py-1.5 text-center" style={{ color: theme.node.muted }}>
-                    {item.text}
+                    {displayText}
                     {item.meta ? <span className="ml-2 opacity-60">{item.meta}</span> : null}
                 </div>
             </div>
@@ -117,7 +123,7 @@ export function AgentChatMessage({ item, theme, onRejectTool, onApproveTool }: {
     }
     if (item.role === "tool") {
         if (objectField(item.detail, "status") === "pending") return <AgentPendingToolCard summary={item.text} detail={item.detail} theme={theme} onReject={() => onRejectTool?.(item.id)} onApprove={() => onApproveTool?.(item.id)} />;
-        return <AgentToolCard title={item.title || "工具调用"} text={item.text} detail={item.detail} theme={theme} />;
+        return <AgentToolCard title={item.title || t("message.toolCall")} text={item.text} detail={item.detail} theme={theme} />;
     }
     return (
         <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
@@ -128,7 +134,7 @@ export function AgentChatMessage({ item, theme, onRejectTool, onApproveTool }: {
                 {isUser ? (
                     <div className="whitespace-pre-wrap break-words">{item.text}</div>
                 ) : (
-                    <Streamdown {...streamdownProps} animated={streamdownAnimation} isAnimating={!!item.streamId}>{item.text}</Streamdown>
+                    <Streamdown {...streamdownProps()} animated={streamdownAnimation} isAnimating={!!item.streamId}>{displayText}</Streamdown>
                 )}
                 {item.attachments?.length ? <AgentMessageAttachments attachments={item.attachments} alignRight={isUser} /> : null}
                 {item.meta ? <div className={`mt-1 text-[11px] tabular-nums opacity-55 ${isUser ? "text-right" : ""}`}>{item.meta}</div> : null}
@@ -138,6 +144,7 @@ export function AgentChatMessage({ item, theme, onRejectTool, onApproveTool }: {
 }
 
 export function AgentPendingToolCard({ summary, detail, theme, onReject, onApprove }: { summary: string; detail?: unknown; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; onReject?: () => void; onApprove?: () => void }) {
+    const { t } = useTranslation("agent");
     const view = userDetail(detail);
     return (
         <div className="min-w-0 rounded-xl border px-3 py-3" style={{ borderColor: "rgba(217,119,6,.28)", background: "rgba(217,119,6,.025)", color: theme.node.text }}>
@@ -145,7 +152,7 @@ export function AgentPendingToolCard({ summary, detail, theme, onReject, onAppro
                 <summary className={`list-none ${view ? "cursor-pointer" : "cursor-default"}`} onClick={(event) => { if (!view) event.preventDefault(); }}>
                     <div className="flex min-w-0 items-center gap-2 text-sm font-medium leading-5">
                         <CircleAlert className="size-4 shrink-0 text-amber-600" />
-                        <span className="min-w-0 flex-1">等待确认</span>
+                        <span className="min-w-0 flex-1">{t("message.waitingConfirmation")}</span>
                         {view ? <ChevronDown className="size-3.5 shrink-0 transition-transform group-open:rotate-180" style={{ color: theme.node.muted }} /> : null}
                     </div>
                     <div className="mt-1 pl-6 text-sm leading-5" style={{ color: theme.node.muted }}>{summary}</div>
@@ -155,10 +162,10 @@ export function AgentPendingToolCard({ summary, detail, theme, onReject, onAppro
             {onReject || onApprove ? (
                 <div className="mt-3 flex justify-end gap-2 border-t pt-3" style={{ borderColor: theme.node.stroke }}>
                     <Button danger type="text" className="!h-8" icon={<XCircle className="size-3.5" />} onClick={() => onReject?.()}>
-                        拒绝执行
+                        {t("message.rejectExecution")}
                     </Button>
                     <Button type="text" className="!h-8" icon={<CheckCircle2 className="size-3.5" />} style={{ color: "#16a34a" }} onClick={() => onApprove?.()}>
-                        批准执行
+                        {t("message.approveExecution")}
                     </Button>
                 </div>
             ) : null}
@@ -167,9 +174,10 @@ export function AgentPendingToolCard({ summary, detail, theme, onReject, onAppro
 }
 
 export function AgentApprovalCard({ approval, theme, onDecision }: { approval: AgentPendingApproval; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; onDecision: (decision: "accept" | "acceptForSession" | "decline") => void }) {
+    const { t } = useTranslation("agent");
     const isFile = approval.method === "item/fileChange/requestApproval";
     const isNetwork = Boolean(approval.networkApprovalContext);
-    const title = isNetwork ? "请求网络访问" : isFile ? "请求编辑文件" : approval.method === "item/permissions/requestApproval" ? "请求扩展权限" : "请求执行命令";
+    const title = t(isNetwork ? "message.networkRequest" : isFile ? "message.fileRequest" : approval.method === "item/permissions/requestApproval" ? "message.permissionRequest" : "message.commandRequest");
     const target = isNetwork ? approvalTarget(approval.networkApprovalContext) : isFile ? approval.grantRoot || approval.cwd : commandText(approval.command) || approval.cwd;
     return (
         <div className="min-w-0 rounded-xl border px-3 py-3" style={{ borderColor: "rgba(234,88,12,.32)", background: "rgba(234,88,12,.035)", color: theme.node.text }}>
@@ -182,9 +190,9 @@ export function AgentApprovalCard({ approval, theme, onDecision }: { approval: A
                 </div>
             </div>
             <div className="mt-3 flex flex-wrap justify-end gap-1.5 border-t pt-3" style={{ borderColor: theme.node.stroke }}>
-                <Button danger type="text" className="!h-8" disabled={Boolean(approval.deciding)} loading={approval.deciding === "decline"} onClick={() => onDecision("decline")}>拒绝</Button>
-                <Button type="text" className="!h-8" disabled={Boolean(approval.deciding)} loading={approval.deciding === "accept"} onClick={() => onDecision("accept")}>允许一次</Button>
-                <Button type="text" className="!h-8" disabled={Boolean(approval.deciding)} loading={approval.deciding === "acceptForSession"} style={{ color: "#ea580c" }} onClick={() => onDecision("acceptForSession")}>本会话允许</Button>
+                <Button danger type="text" className="!h-8" disabled={Boolean(approval.deciding)} loading={approval.deciding === "decline"} onClick={() => onDecision("decline")}>{t("message.reject")}</Button>
+                <Button type="text" className="!h-8" disabled={Boolean(approval.deciding)} loading={approval.deciding === "accept"} onClick={() => onDecision("accept")}>{t("message.allowOnce")}</Button>
+                <Button type="text" className="!h-8" disabled={Boolean(approval.deciding)} loading={approval.deciding === "acceptForSession"} style={{ color: "#ea580c" }} onClick={() => onDecision("acceptForSession")}>{t("message.allowSession")}</Button>
             </div>
         </div>
     );
@@ -198,7 +206,7 @@ export function AgentToolCard({ title, text, detail, theme }: { title: string; t
     if (kind === "command") return <AgentCommandGroup items={[{ id: title, text, detail }]} theme={theme} />;
     const state = toolCardState(title, text, detail);
     const view = userDetail(detail);
-    const showText = title !== "读取画布" || text !== "已读取当前画布内容";
+    const showText = (title !== "读取画布" && title !== i18n.t("events.readCanvas", { ns: "agent" })) || (text !== "已读取当前画布内容" && text !== i18n.t("events.canvasRead", { ns: "agent" }));
     const className = "group min-w-0 rounded-xl border px-3 py-2.5 text-left";
     const style = { borderColor: theme.node.stroke, background: "transparent", color: theme.node.text };
     const content = (
@@ -226,6 +234,7 @@ export function AgentToolCard({ title, text, detail, theme }: { title: string; t
 }
 
 function AgentReasoningSummary({ text, detail, theme }: { text: string; detail?: unknown; theme: (typeof canvasThemes)[keyof typeof canvasThemes] }) {
+    const { t } = useTranslation("agent");
     const status = String(objectField(detail, "status") || "");
     const running = ["inProgress", "in_progress", "running", "started", "pending"].includes(status);
     return (
@@ -233,12 +242,12 @@ function AgentReasoningSummary({ text, detail, theme }: { text: string; detail?:
             <summary className="cursor-pointer list-none py-1 text-sm" style={{ color: theme.node.muted }}>
                 <div className="flex min-w-0 items-center gap-2">
                     {running ? <LoaderCircle className="size-4 shrink-0 animate-spin" /> : <Brain className="size-4 shrink-0" />}
-                    <span>{running ? "正在思考" : "思考摘要"}</span>
+                    <span>{t(running ? "message.thinking" : "message.reasoningSummary")}</span>
                     <ChevronRight className="size-3.5 shrink-0 transition-transform group-open:rotate-90" />
                 </div>
             </summary>
             <div className="break-words pb-1 pl-6 pr-2 text-xs leading-5 [&_code]:rounded [&_code]:px-1 [&_p]:my-1 [&_pre]:my-2" style={{ color: theme.node.muted }}>
-                <Streamdown {...streamdownProps} animated={streamdownAnimation} isAnimating={running}>{text}</Streamdown>
+                <Streamdown {...streamdownProps()} animated={streamdownAnimation} isAnimating={running}>{text}</Streamdown>
             </div>
         </details>
     );
@@ -247,14 +256,15 @@ function AgentReasoningSummary({ text, detail, theme }: { text: string; detail?:
 type AgentCommandItem = Pick<AgentChatMessageItem, "id" | "text" | "detail">;
 
 export function AgentCommandGroup({ items, theme }: { items: AgentCommandItem[]; theme: (typeof canvasThemes)[keyof typeof canvasThemes] }) {
+    const { t } = useTranslation("agent");
     const states = items.map((item) => commandViewState(item.detail));
     const running = states.some((state) => state.running);
     const failed = states.filter((state) => state.failed).length;
     const expandable = items.some((item) => Boolean(item.text.trim() || userDetail(item.detail)));
     const color = running ? "#d97706" : failed ? "#dc2626" : theme.node.muted;
     const label = running
-        ? items.length > 1 ? `正在执行 ${items.length} 条命令` : "正在执行命令"
-        : `已执行 ${items.length} 条命令${failed ? ` · ${failed} 条失败` : ""}`;
+        ? items.length > 1 ? t("message.runningCommands", { count: items.length }) : t("message.runningCommand")
+        : `${t("message.completedCommands", { count: items.length })}${failed ? t("message.failedCount", { count: failed }) : ""}`;
     const header = (
         <div className="flex min-w-0 items-center gap-2 text-sm" style={{ color }}>
             {running ? <LoaderCircle className="size-4 shrink-0 animate-spin" /> : <TerminalSquare className="size-4 shrink-0" />}
@@ -285,16 +295,17 @@ function AgentSingleCommand({ item, theme }: { item: AgentCommandItem; theme: (t
 }
 
 function AgentCommandEntry({ item, index, theme }: { item: AgentCommandItem; index: number; theme: (typeof canvasThemes)[keyof typeof canvasThemes] }) {
+    const { t } = useTranslation("agent");
     const [open, setOpen] = useState(false);
     const detailId = useId();
     const view = userDetail(item.detail);
     const state = commandViewState(item.detail);
-    const status = state.failed ? "执行失败" : state.running ? "执行中" : "已完成";
+    const status = t(state.failed ? "message.executionFailed" : state.running ? "message.running" : "message.completed");
     const color = state.failed ? "#dc2626" : state.running ? "#d97706" : "#16a34a";
     const content = (
         <>
             <span className="w-4 shrink-0 text-center text-[10px] tabular-nums opacity-50" style={{ color: theme.node.muted }}>{index + 1}</span>
-            <code className="min-w-0 flex-1 truncate text-[11px] leading-5" style={{ color: theme.node.text }} title={item.text}>{item.text || "命令"}</code>
+            <code className="min-w-0 flex-1 truncate text-[11px] leading-5" style={{ color: theme.node.text }} title={item.text}>{item.text || t("message.command")}</code>
             <span className="shrink-0" style={{ color }} title={status} aria-label={status}>
                 {state.running ? <LoaderCircle className="size-3.5 animate-spin" /> : state.failed ? <XCircle className="size-3.5" /> : <CheckCircle2 className="size-3.5" />}
             </span>
@@ -350,6 +361,7 @@ function AgentPlanCard({ title, plan, theme }: { title: string; plan: PlanDetail
 }
 
 export function AgentWorkingMessage({ text, detail, status = "running", mcpStatuses = [], activityKey, theme }: { text: string; detail?: string; status?: "running" | "ready" | "error"; mcpStatuses?: Array<{ name: string; status: "running" | "ready" | "error"; detail: string }>; activityKey: string; theme: (typeof canvasThemes)[keyof typeof canvasThemes] }) {
+    const { t } = useTranslation("agent");
     const [elapsed, setElapsed] = useState(0);
     useEffect(() => {
         const startedAt = Date.now();
@@ -378,15 +390,15 @@ export function AgentWorkingMessage({ text, detail, status = "running", mcpStatu
                     ))}
                 </div>
             ) : null}
-            {status === "running" && elapsed >= 30 ? <div className="mt-1 text-xs leading-5 opacity-65" style={{ color: theme.node.muted }}>响应时间较长，但任务仍在运行。可以继续等待，或点击输入框右侧的停止按钮结束本轮。</div> : null}
+            {status === "running" && elapsed >= 30 ? <div className="mt-1 text-xs leading-5 opacity-65" style={{ color: theme.node.muted }}>{t("message.slowResponse")}</div> : null}
         </div>
     );
 }
 
 function waitingTime(seconds: number) {
-    if (seconds < 60) return `已等待 ${seconds} 秒`;
+    if (seconds < 60) return i18n.t("message.waitedSeconds", { ns: "agent", seconds });
     const minutes = Math.floor(seconds / 60);
-    return `已等待 ${minutes} 分 ${seconds % 60} 秒`;
+    return i18n.t("message.waitedMinutes", { ns: "agent", minutes, seconds: seconds % 60 });
 }
 
 function commandText(value: unknown) {
@@ -406,6 +418,7 @@ type PlanDetail = { status: string; tasks: PlanTask[]; explanation?: string };
 type UserDetail = { kind?: string; status?: string; rows?: Array<{ label: string; value: string }>; output?: string; files?: Array<{ path: string; action?: string }> };
 
 function AgentDetailBlock({ detail, theme }: { detail: UserDetail; theme: (typeof canvasThemes)[keyof typeof canvasThemes] }) {
+    const { t } = useTranslation("agent");
     return (
         <div className="mt-3 space-y-2.5 border-t pt-3 text-xs" style={{ borderColor: theme.node.stroke, color: theme.node.muted }}>
             {detail.rows?.length ? (
@@ -420,7 +433,7 @@ function AgentDetailBlock({ detail, theme }: { detail: UserDetail; theme: (typeo
             ) : null}
             {detail.files?.length ? (
                 <div className="space-y-1.5">
-                    <div className="opacity-60">涉及文件</div>
+                    <div className="opacity-60">{t("message.files")}</div>
                     {detail.files.map((file) => (
                         <div key={`${file.action}-${file.path}`} className="flex items-start gap-2">
                             <FileText className="mt-0.5 size-3.5 shrink-0" />
@@ -432,7 +445,7 @@ function AgentDetailBlock({ detail, theme }: { detail: UserDetail; theme: (typeo
             ) : null}
             {detail.output ? (
                 <div className="space-y-1.5">
-                    <div className="opacity-60">{detail.status === "failed" || detail.status === "error" ? "错误信息" : "运行输出"}</div>
+                    <div className="opacity-60">{t(detail.status === "failed" || detail.status === "error" ? "message.errorInfo" : "message.output")}</div>
                     <pre className="thin-scrollbar max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-lg px-3 py-2 font-mono text-[11px] leading-4" style={{ background: theme.toolbar.panel, color: theme.node.text }}>{detail.output}</pre>
                 </div>
             ) : null}
@@ -441,6 +454,7 @@ function AgentDetailBlock({ detail, theme }: { detail: UserDetail; theme: (typeo
 }
 
 function AgentMessageAttachments({ attachments, alignRight }: { attachments: AgentChatAttachment[]; alignRight?: boolean }) {
+    const { t } = useTranslation("agent");
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
     return (
         <>
@@ -450,7 +464,7 @@ function AgentMessageAttachments({ attachments, alignRight }: { attachments: Age
                         key={item.id}
                         src={item.url}
                         alt={item.name}
-                        title="点击查看大图"
+                        title={t("message.preview")}
                         className="size-10 cursor-zoom-in rounded-lg object-cover"
                         draggable={false}
                         onClick={() => setPreviewUrl(item.url)}
@@ -459,7 +473,7 @@ function AgentMessageAttachments({ attachments, alignRight }: { attachments: Age
             </div>
             {previewUrl ? (
                 <div className="hidden">
-                    <Image src={previewUrl} alt="图片附件预览" preview={{ visible: true, src: previewUrl, onVisibleChange: (visible) => !visible && setPreviewUrl(null) }} />
+                    <Image src={previewUrl} alt={t("message.attachmentPreview")} preview={{ visible: true, src: previewUrl, onVisibleChange: (visible) => !visible && setPreviewUrl(null) }} />
                 </div>
             ) : null}
         </>
@@ -470,12 +484,12 @@ function toolCardState(title: string, text: string, detail?: unknown) {
     const raw = `${title} ${text} ${normalizeText(objectField(detail, "error"))}`;
     const lower = raw.toLowerCase();
     const status = String(objectField(detail, "status") || "").toLowerCase();
-    if (status === "noop" || /未生效|无需|没有找到|没有.*可|已存在/.test(raw)) return { label: "未生效", color: "#d97706", icon: <CircleAlert className="size-4" />, isError: false };
-    if (["declined", "rejected", "cancelled", "canceled"].includes(status) || /拒绝|取消/.test(raw)) return { label: "已取消", color: "#dc2626", icon: <XCircle className="size-4" />, isError: true };
-    if (["failed", "error"].includes(status) || /失败|错误/.test(raw) || lower.includes("failed") || lower.includes("error")) return { label: "执行失败", color: "#dc2626", icon: <XCircle className="size-4" />, isError: true };
-    if (["inprogress", "in_progress", "running", "started", "pending"].includes(status)) return { label: "进行中", color: "#d97706", icon: <LoaderCircle className="size-4 animate-spin" />, isError: false };
-    if (["completed", "succeeded", "success"].includes(status) || /完成|成功/.test(raw)) return { label: "已完成", color: "#16a34a", icon: <CheckCircle2 className="size-4" />, isError: false };
-    return { label: "已记录", color: "#2563eb", icon: <Wrench className="size-4" />, isError: false };
+    if (status === "noop" || /未生效|无需|没有找到|没有.*可|已存在/.test(raw)) return { label: i18n.t("message.noEffect", { ns: "agent" }), color: "#d97706", icon: <CircleAlert className="size-4" />, isError: false };
+    if (["declined", "rejected", "cancelled", "canceled"].includes(status) || /拒绝|取消/.test(raw)) return { label: i18n.t("message.cancelled", { ns: "agent" }), color: "#dc2626", icon: <XCircle className="size-4" />, isError: true };
+    if (["failed", "error"].includes(status) || /失败|错误/.test(raw) || lower.includes("failed") || lower.includes("error")) return { label: i18n.t("message.executionFailed", { ns: "agent" }), color: "#dc2626", icon: <XCircle className="size-4" />, isError: true };
+    if (["inprogress", "in_progress", "running", "started", "pending"].includes(status)) return { label: i18n.t("message.inProgress", { ns: "agent" }), color: "#d97706", icon: <LoaderCircle className="size-4 animate-spin" />, isError: false };
+    if (["completed", "succeeded", "success"].includes(status) || /完成|成功/.test(raw)) return { label: i18n.t("message.completed", { ns: "agent" }), color: "#16a34a", icon: <CheckCircle2 className="size-4" />, isError: false };
+    return { label: i18n.t("message.recorded", { ns: "agent" }), color: "#2563eb", icon: <Wrench className="size-4" />, isError: false };
 }
 
 function toolIcon(kind: string | undefined, fallback: ReactNode) {
@@ -486,17 +500,17 @@ function toolIcon(kind: string | undefined, fallback: ReactNode) {
 }
 
 function planCardState(plan: PlanDetail, completed: number) {
-    if (plan.status === "failed") return { label: "执行失败", color: "#dc2626" };
-    if (["interrupted", "cancelled", "canceled"].includes(plan.status)) return { label: "已停止", color: "#d97706" };
-    if (completed === plan.tasks.length) return { label: "已完成", color: "#16a34a" };
-    if (plan.status === "finished") return { label: "已结束", color: "#2563eb" };
-    return { label: "进行中", color: "#d97706" };
+    if (plan.status === "failed") return { label: i18n.t("message.executionFailed", { ns: "agent" }), color: "#dc2626" };
+    if (["interrupted", "cancelled", "canceled"].includes(plan.status)) return { label: i18n.t("message.stopped", { ns: "agent" }), color: "#d97706" };
+    if (completed === plan.tasks.length) return { label: i18n.t("message.completed", { ns: "agent" }), color: "#16a34a" };
+    if (plan.status === "finished") return { label: i18n.t("message.finished", { ns: "agent" }), color: "#2563eb" };
+    return { label: i18n.t("message.inProgress", { ns: "agent" }), color: "#d97706" };
 }
 
 function planTaskState(status: string, muted: string) {
-    if (status === "completed") return { label: "已完成", color: "#16a34a", icon: <CheckCircle2 className="size-3.5" /> };
-    if (status === "inProgress") return { label: "进行中", color: "#d97706", icon: <LoaderCircle className="size-3.5 animate-spin" /> };
-    return { label: "待处理", color: muted, icon: <Circle className="size-3.5" /> };
+    if (status === "completed") return { label: i18n.t("message.completed", { ns: "agent" }), color: "#16a34a", icon: <CheckCircle2 className="size-3.5" /> };
+    if (status === "inProgress") return { label: i18n.t("message.inProgress", { ns: "agent" }), color: "#d97706", icon: <LoaderCircle className="size-3.5 animate-spin" /> };
+    return { label: i18n.t("message.pending", { ns: "agent" }), color: muted, icon: <Circle className="size-3.5" /> };
 }
 
 function planDetail(value: unknown): PlanDetail | null {

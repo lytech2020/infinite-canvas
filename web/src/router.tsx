@@ -1,15 +1,23 @@
 import { createBrowserRouter, Outlet } from "react-router-dom";
 
 import { AnalyticsTracker } from "@/components/layout/analytics-tracker";
+import { RequireAdmin } from "@/components/layout/require-admin";
+import { RequireUser } from "@/components/layout/require-user";
+import AdminLayout from "@/layouts/admin-layout";
 import UserLayout from "@/layouts/user-layout";
+import AdminCatalogPage from "@/pages/admin/catalog";
+import AdminOverviewPage from "@/pages/admin/overview";
+import AdminPromptsPage from "@/pages/admin/prompts";
+import AdminUsagePage from "@/pages/admin/usage";
+import AdminUsersPage from "@/pages/admin/users";
 import AssetsPage from "@/pages/assets";
 import CanvasPage from "@/pages/canvas";
 import CanvasProjectPage from "@/pages/canvas/project";
-import ConfigPage from "@/pages/config";
 import HomePage from "@/pages/home";
 import ImagePage from "@/pages/image";
+import LoginPage from "@/pages/login";
 import NotFound from "@/pages/not-found";
-import PromptsPage from "@/pages/prompts";
+import PrivacyPage from "@/pages/privacy";
 import VideoPage from "@/pages/video";
 
 export const router = createBrowserRouter([
@@ -22,13 +30,28 @@ export const router = createBrowserRouter([
         ),
         children: [
             { path: "/", element: <HomePage /> },
-            { path: "/image", element: <ImagePage /> },
-            { path: "/video", element: <VideoPage /> },
-            { path: "/assets", element: <AssetsPage /> },
-            { path: "/prompts", element: <PromptsPage /> },
-            { path: "/canvas", element: <CanvasPage /> },
-            { path: "/canvas/:id", element: <CanvasProjectPage /> },
-            { path: "/config", element: <ConfigPage /> },
+            { path: "/image", element: <RequireUser><ImagePage /></RequireUser> },
+            { path: "/video", element: <RequireUser><VideoPage /></RequireUser> },
+            { path: "/assets", element: <RequireUser><AssetsPage /></RequireUser> },
+            { path: "/canvas", element: <RequireUser><CanvasPage /></RequireUser> },
+            { path: "/canvas/:id", element: <RequireUser><CanvasProjectPage /></RequireUser> },
+            { path: "/login", element: <LoginPage /> },
+            { path: "/privacy", element: <PrivacyPage /> },
+            {
+                path: "/admin",
+                element: (
+                    <RequireAdmin>
+                        <AdminLayout />
+                    </RequireAdmin>
+                ),
+                children: [
+                    { index: true, element: <AdminOverviewPage /> },
+                    { path: "usage", element: <AdminUsagePage /> },
+                    { path: "users", element: <AdminUsersPage /> },
+                    { path: "prompts", element: <AdminPromptsPage /> },
+                    { path: "catalog", element: <AdminCatalogPage /> },
+                ],
+            },
         ],
     },
     { path: "*", element: <NotFound /> },

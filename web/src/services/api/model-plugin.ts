@@ -1,6 +1,7 @@
 import axios, { type AxiosRequestConfig } from "axios";
+import { errorText } from "@/i18n/error-text";
 
-import { buildApiUrl, type AiConfig, type ModelCapability } from "@/stores/use-config-store";
+import { buildModelApiHeaders, buildModelApiUrl, type AiConfig, type ModelCapability } from "@/stores/use-config-store";
 
 type RequestOptions = { signal?: AbortSignal };
 
@@ -38,7 +39,7 @@ function pluginHeaders(extra?: Record<string, string>, hasJsonBody = false): Rec
 
 function pluginUrl(config: AiConfig, path: string) {
     if (/^https?:/i.test(path)) return path;
-    return buildApiUrl(config.baseUrl, path.startsWith("/") ? path : `/${path}`);
+    return buildModelApiUrl(config, path.startsWith("/") ? path : `/${path}`);
 }
 
 function createPluginHttp(config: AiConfig, options?: RequestOptions): PluginHttp {
@@ -49,7 +50,7 @@ function createPluginHttp(config: AiConfig, options?: RequestOptions): PluginHtt
             url: pluginUrl(config, path),
             data: method === "post" ? body : undefined,
             params: opts?.params,
-            headers: pluginHeaders({ Authorization: `Bearer ${config.apiKey}`, ...opts?.headers }, method === "post" && !isForm && body !== undefined),
+            headers: pluginHeaders({ ...buildModelApiHeaders(config), ...opts?.headers }, method === "post" && !isForm && body !== undefined),
             responseType: opts?.responseType || "json",
             signal: options?.signal,
         });
@@ -97,7 +98,7 @@ function createPoll(signal?: AbortSignal) {
             if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
             const result = extract(await request());
             if (result !== null && result !== undefined && result !== false) return result;
-            if (performance.now() >= deadline) throw new Error("插件轮询超时，请检查调用脚本或稍后重试");
+            if (performance.now() >= deadline) throw new Error(errorText("pluginPollTimeout"));
             await sleep(intervalMs, signal);
         }
     };
@@ -155,7 +156,7 @@ export async function runModelPlugin<T = unknown>(args: RunPluginArgs): Promise<
         if (error instanceof DOMException && error.name === "AbortError") throw error;
         if (axios.isCancel(error)) throw error;
         const message = error instanceof Error ? error.message : String(error);
-        throw new Error(`模型调用脚本执行失败：${message}`);
+        throw new Error(errorText("modelScriptFailed", { message }));
     }
 }
 
@@ -172,7 +173,7 @@ export const PLUGIN_VARIABLES: PluginVariable[] = [
     { name: "apiKey", type: "string", desc: "渠道 API Key，请求头里自己带上" },
     { name: "systemPrompt", type: "string", desc: "系统提示词原文" },
     { name: "reasoningEffort", type: '"auto" | "low" | "medium" | "high" | "xhigh"', desc: "文本推理强度；auto 表示由脚本决定是否传递", capabilities: ["text"] },
-    { name: "http", type: "object", desc: "便捷请求：http.post(path, body, {headers,params,responseType})、http.get(path, opts)、http.url(path)；默认带 Authorization: Bearer apiKey，可用 headers 覆盖；path 相对时按 baseUrl 拼 /v1" },
+    { name: "http", type: "object", desc: "便捷请求：http.post(path, body, {headers,params,responseType})、http.get(path, opts)、http.url(path)；按渠道协议自动添加鉴权头和 API 路径，可用 headers 覆盖" },
     { name: "request", type: "function", desc: "原始请求 request({ method, url, headers, params, data, responseType })，不加任何默认头，鉴权头自己写；url 相对时按 baseUrl 拼接（不加 /v1）" },
     { name: "poll", type: "function", desc: "轮询 poll(request, extract, {intervalMs,timeoutMs})，extract 返回真值即结束" },
     { name: "sleep", type: "function", desc: "sleep(ms) 延时" },
@@ -376,6 +377,6 @@ export function normalizePluginImages(result: unknown): string[] {
             return "";
         })
         .filter(Boolean);
-    if (!urls.length) throw new Error("模型调用脚本没有返回图片");
+    if (!urls.length) throw new Error(errorText("pluginImageMissing"));
     return urls;
 }

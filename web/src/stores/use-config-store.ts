@@ -1,9 +1,16 @@
 import { useMemo } from "react";
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
 import { nanoid } from "nanoid";
 
-export type ApiCallFormat = "openai" | "gemini" | "ark";
+import i18n from "@/i18n";
+import { cloudModel, cloudModelsByCapability, decodeCloudModelId, encodeCloudModel } from "@/stores/use-cloud-model-store";
+import { readUserData, reportCloudSaveError, writeUserData } from "@/services/api/user-data";
+
+// 渠道名只在“没有名字”时按当前语言生成，已有名字一律保留,切换语言不改写用户数据
+const defaultChannelName = () => i18n.t("defaultChannel", { ns: "config" });
+const generatedChannelName = (number: number) => i18n.t("channels.generatedName", { ns: "config", number });
+
+export type ApiCallFormat = "openai" | "azure-openai" | "gemini" | "ark";
 export type ModelCapability = "image" | "video" | "text" | "audio";
 export type ReasoningEffort = "auto" | "low" | "medium" | "high" | "xhigh";
 
@@ -19,6 +26,7 @@ export type ModelChannel = {
     baseUrl: string;
     apiKey: string;
     apiFormat: ApiCallFormat;
+    azureApiVersion: string;
     models: ChannelModel[];
 };
 
@@ -27,6 +35,7 @@ export type AiConfig = {
     baseUrl: string;
     apiKey: string;
     apiFormat: ApiCallFormat;
+    azureApiVersion: string;
     channels: ModelChannel[];
     model: string;
     imageModel: string;
@@ -58,11 +67,12 @@ export type WebdavSyncConfig = {
     directory: string;
     lastSyncedAt: string;
 };
-export type ConfigTabKey = "channels" | "preferences" | "prompt-sources" | "webdav";
+export type ConfigTabKey = "preferences";
 
-export const CONFIG_STORE_KEY = "infinite-canvas:ai_config_store";
 const CHANNEL_MODEL_SEPARATOR = "::";
 const OPENAI_BASE_URL = "https://api.openai.com";
+const AZURE_OPENAI_BASE_URL = "https://admin-6149-resource.services.ai.azure.com";
+const AZURE_OPENAI_API_VERSION = "preview";
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com";
 const ARK_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3";
 
@@ -71,6 +81,7 @@ export const defaultConfig: AiConfig = {
     baseUrl: OPENAI_BASE_URL,
     apiKey: "",
     apiFormat: "openai",
+    azureApiVersion: AZURE_OPENAI_API_VERSION,
     channels: [
         {
             id: "default",
@@ -78,6 +89,7 @@ export const defaultConfig: AiConfig = {
             baseUrl: OPENAI_BASE_URL,
             apiKey: "",
             apiFormat: "openai",
+            azureApiVersion: AZURE_OPENAI_API_VERSION,
             models: [
                 { name: "gpt-image-2", capability: "image" },
                 { name: "grok-imagine-video", capability: "video" },
@@ -118,17 +130,21 @@ export const defaultWebdavSyncConfig: WebdavSyncConfig = {
 };
 
 type ConfigStore = {
+    hydrated: boolean;
     config: AiConfig;
     webdav: WebdavSyncConfig;
     isConfigOpen: boolean;
     configTab: ConfigTabKey;
     shouldPromptContinue: boolean;
     updateConfig: <K extends keyof AiConfig>(key: K, value: AiConfig[K]) => void;
+    clearProviderConfig: () => void;
     updateWebdavConfig: <K extends keyof WebdavSyncConfig>(key: K, value: WebdavSyncConfig[K]) => void;
     isAiConfigReady: (config: AiConfig, model: string) => boolean;
     openConfigDialog: (shouldPromptContinue?: boolean, tab?: ConfigTabKey) => void;
     setConfigDialogOpen: (isOpen: boolean) => void;
     clearPromptContinue: () => void;
+    loadConfig: () => Promise<void>;
+    reset: () => void;
 };
 
 const VIDEO_KEYWORDS = ["seedance", "video", "sora", "veo", "kling", "wan", "hailuo"];
@@ -153,6 +169,8 @@ function findChannelModel(config: AiConfig, value: string): { channel: ModelChan
 }
 
 export function modelCapabilityOf(config: AiConfig, value: string): ModelCapability | undefined {
+    const remote = cloudModel(value);
+    if (remote) return remote.capability;
     return findChannelModel(config, value)?.model.capability;
 }
 
@@ -170,8 +188,8 @@ export function resolveModelForCapability(config: AiConfig, currentModel: string
 }
 
 export function selectableModelsByCapability(config: AiConfig, capability?: ModelCapability) {
-    if (!capability) return config.models;
-    return config.channels.flatMap((channel) => channel.models.filter((model) => model.capability === capability).map((model) => encodeChannelModel(channel.id, model.name)));
+    const remote = cloudModelsByCapability(capability).map((model) => encodeCloudModel(model.id));
+    return remote;
 }
 
 /** The user script (if any) attached to a model; empty string means use the system default call. */
@@ -179,26 +197,86 @@ export function resolveModelScript(config: AiConfig, value: string) {
     return findChannelModel(config, value)?.model.script?.trim() || "";
 }
 
-function isAiConfigReady(config: AiConfig, model: string) {
-    const channel = resolveModelChannel(config, model);
-    return Boolean(model.trim() && channel.baseUrl.trim() && channel.apiKey.trim());
+function isAiConfigReady(_config: AiConfig, model: string) {
+    return Boolean(decodeCloudModelId(model) && cloudModel(model));
 }
 
-export const useConfigStore = create<ConfigStore>()(
-    persist(
-        (set, get) => ({
+let configSaveTimer: ReturnType<typeof setTimeout> | null = null;
+let configSaveTask: Promise<void> | null = null;
+let configLoadVersion = 0;
+let configSaveVersion = 0;
+let pendingConfig: AiConfig | null = null;
+function saveConfig(config: AiConfig) {
+    if (configSaveTimer) clearTimeout(configSaveTimer);
+    pendingConfig = config;
+    const version = configSaveVersion;
+    configSaveTimer = setTimeout(() => {
+        configSaveTimer = null;
+        pendingConfig = null;
+        const safe = { ...config, baseUrl: "", apiKey: "", apiFormat: "openai" as const, azureApiVersion: "", channels: [], models: [], systemPrompt: "" };
+        if (version === configSaveVersion) {
+            const task = writeUserData("ai_config", safe).catch(reportCloudSaveError).finally(() => { if (configSaveTask === task) configSaveTask = null; });
+            configSaveTask = task;
+        }
+    }, 200);
+}
+
+export async function flushPendingConfig() {
+    if (!pendingConfig) {
+        await configSaveTask;
+        return;
+    }
+    if (configSaveTimer) clearTimeout(configSaveTimer);
+    configSaveTimer = null;
+    const config = pendingConfig;
+    pendingConfig = null;
+    await configSaveTask;
+    await writeUserData("ai_config", { ...config, baseUrl: "", apiKey: "", apiFormat: "openai" as const, azureApiVersion: "", channels: [], models: [], systemPrompt: "" });
+}
+
+function normalizeSavedConfig(saved?: Partial<AiConfig> | null) {
+    const config = { ...defaultConfig, ...(saved || {}) };
+    if (!Array.isArray(saved?.channels)) config.channels = [];
+    const channels = normalizeChannels(config);
+    return {
+        ...config,
+        channelMode: "local" as const,
+        apiFormat: normalizeApiFormat(config.apiFormat),
+        azureApiVersion: config.azureApiVersion || AZURE_OPENAI_API_VERSION,
+        channels,
+        models: modelOptionsFromChannels(channels),
+        imageModel: normalizeModelOptionValue(config.imageModel || config.model, channels),
+        videoModel: normalizeModelOptionValue(config.videoModel, channels),
+        textModel: normalizeModelOptionValue(config.textModel || config.model, channels),
+        audioModel: normalizeModelOptionValue(config.audioModel || defaultConfig.audioModel, channels),
+        audioVoice: config.audioVoice || defaultConfig.audioVoice,
+        audioFormat: config.audioFormat || defaultConfig.audioFormat,
+        audioSpeed: config.audioSpeed || defaultConfig.audioSpeed,
+        audioInstructions: config.audioInstructions || "",
+        reasoningEffort: config.reasoningEffort || "auto",
+        videoSeconds: config.videoSeconds || "6",
+        vquality: config.vquality || "720",
+        videoGenerateAudio: config.videoGenerateAudio || "true",
+        videoWatermark: config.videoWatermark || "false",
+        canvasImageCount: config.canvasImageCount || "3",
+    };
+}
+
+export const useConfigStore = create<ConfigStore>()((set, get) => ({
+            hydrated: false,
             config: defaultConfig,
             webdav: defaultWebdavSyncConfig,
             isConfigOpen: false,
-            configTab: "channels",
+            configTab: "preferences",
             shouldPromptContinue: false,
-            updateConfig: (key, value) =>
-                set((state) => ({
-                    config: {
-                        ...state.config,
-                        [key]: value,
-                    },
-                })),
+            updateConfig: (key, value) => {
+                const config = { ...get().config, [key]: value };
+                set({ config }); saveConfig(config);
+            },
+            clearProviderConfig: () => {
+                const config = { ...get().config, baseUrl: "", apiKey: "", apiFormat: "openai" as const, azureApiVersion: "", channels: [], models: [], systemPrompt: "" };
+                set({ config });
+            },
             updateWebdavConfig: (key, value) =>
                 set((state) => ({
                     webdav: {
@@ -207,50 +285,24 @@ export const useConfigStore = create<ConfigStore>()(
                     },
                 })),
             isAiConfigReady: (config, model) => isAiConfigReady(config, model),
-            openConfigDialog: (shouldPromptContinue = false, configTab = "channels") => set({ isConfigOpen: true, shouldPromptContinue, configTab }),
+            openConfigDialog: (shouldPromptContinue = false, configTab = "preferences") => set({ isConfigOpen: true, shouldPromptContinue, configTab }),
             setConfigDialogOpen: (isConfigOpen) => set({ isConfigOpen }),
             clearPromptContinue: () => set({ shouldPromptContinue: false }),
-        }),
-        {
-            name: CONFIG_STORE_KEY,
-            partialize: (state) => ({ config: state.config, webdav: state.webdav }),
-            merge: (persisted, current) => {
-                const persistedState = (persisted || {}) as Partial<ConfigStore>;
-                const persistedConfig = (persistedState.config || {}) as Partial<AiConfig>;
-                const persistedWebdav = (persistedState.webdav || {}) as Partial<WebdavSyncConfig>;
-                const config = { ...defaultConfig, ...persistedConfig };
-                if (!Array.isArray(persistedConfig.channels)) config.channels = [];
-                const channels = normalizeChannels(config);
-                const models = modelOptionsFromChannels(channels);
-                return {
-                    ...current,
-                    webdav: { ...defaultWebdavSyncConfig, ...persistedWebdav },
-                    config: {
-                        ...config,
-                        channelMode: "local",
-                        apiFormat: normalizeApiFormat(config.apiFormat),
-                        channels,
-                        models,
-                        imageModel: normalizeModelOptionValue(config.imageModel || config.model, channels),
-                        videoModel: normalizeModelOptionValue(config.videoModel, channels),
-                        textModel: normalizeModelOptionValue(config.textModel || config.model, channels),
-                        audioModel: normalizeModelOptionValue(config.audioModel || defaultConfig.audioModel, channels),
-                        audioVoice: config.audioVoice || defaultConfig.audioVoice,
-                        audioFormat: config.audioFormat || defaultConfig.audioFormat,
-                        audioSpeed: config.audioSpeed || defaultConfig.audioSpeed,
-                        audioInstructions: config.audioInstructions || "",
-                        reasoningEffort: config.reasoningEffort || "auto",
-                        videoSeconds: config.videoSeconds || "6",
-                        vquality: config.vquality || "720",
-                        videoGenerateAudio: config.videoGenerateAudio || "true",
-                        videoWatermark: config.videoWatermark || "false",
-                        canvasImageCount: config.canvasImageCount || "3",
-                    },
-                };
+            loadConfig: async () => {
+                const version = ++configLoadVersion;
+                const config = normalizeSavedConfig(await readUserData<Partial<AiConfig>>("ai_config"));
+                if (version === configLoadVersion) set({ config, hydrated: true });
             },
-        },
-    ),
-);
+            reset: () => {
+                configLoadVersion += 1;
+                configSaveVersion += 1;
+                if (configSaveTimer) clearTimeout(configSaveTimer);
+                configSaveTimer = null;
+                configSaveTask = null;
+                pendingConfig = null;
+                set({ hydrated: false, config: defaultConfig, webdav: defaultWebdavSyncConfig, isConfigOpen: false, shouldPromptContinue: false });
+            },
+}));
 
 export function useEffectiveConfig() {
     const config = useConfigStore((state) => state.config);
@@ -276,10 +328,11 @@ export function createModelChannel(channel?: Partial<ModelChannel>): ModelChanne
     const apiFormat = normalizeApiFormat(channel?.apiFormat);
     return {
         id: channel?.id?.trim() || nanoid(),
-        name: channel?.name?.trim() || "新渠道",
+        name: channel?.name?.trim() || i18n.t("channels.unnamed", { ns: "config" }),
         baseUrl: channel?.baseUrl?.trim() || defaultBaseUrlForApiFormat(apiFormat),
         apiKey: channel?.apiKey || "",
         apiFormat,
+        azureApiVersion: channel?.azureApiVersion?.trim() || AZURE_OPENAI_API_VERSION,
         models: normalizeChannelModels(channel?.models),
     };
 }
@@ -303,6 +356,8 @@ export function modelOptionName(value: string) {
 }
 
 export function modelOptionLabel(config: AiConfig, value: string) {
+    const remote = cloudModel(value);
+    if (remote) return remote.displayName;
     const decoded = decodeChannelModel(value);
     if (!decoded) return value;
     const channel = config.channels.find((item) => item.id === decoded.channelId);
@@ -329,7 +384,7 @@ export function resolveModelChannel(config: AiConfig, value: string) {
     const decoded = decodeChannelModel(value);
     const model = decoded?.model || value;
     const matched = decoded ? config.channels.find((channel) => channel.id === decoded.channelId) : config.channels.find((channel) => channel.models.some((item) => item.name === model));
-    return matched || config.channels[0] || createModelChannel({ id: "default", name: "默认渠道", baseUrl: config.baseUrl, apiKey: config.apiKey, apiFormat: config.apiFormat, models: config.models.map(modelOptionName).map((name) => ({ name, capability: guessCapability(name) })) });
+    return matched || config.channels[0] || createModelChannel({ id: "default", name: defaultChannelName(), baseUrl: config.baseUrl, apiKey: config.apiKey, apiFormat: config.apiFormat, models: config.models.map(modelOptionName).map((name) => ({ name, capability: guessCapability(name) })) });
 }
 
 export function resolveModelRequestConfig(config: AiConfig, value: string) {
@@ -340,6 +395,7 @@ export function resolveModelRequestConfig(config: AiConfig, value: string) {
         baseUrl: channel.baseUrl,
         apiKey: channel.apiKey,
         apiFormat: channel.apiFormat,
+        azureApiVersion: channel.azureApiVersion,
     };
 }
 
@@ -349,7 +405,7 @@ function normalizeChannels(config: AiConfig) {
         createModelChannel({
             ...channel,
             id: channel.id || (index === 0 ? "default" : `channel-${index + 1}`),
-            name: channel.name || (index === 0 ? "默认渠道" : `渠道 ${index + 1}`),
+            name: channel.name || (index === 0 ? defaultChannelName() : generatedChannelName(index + 1)),
             models: normalizeChannelModels(channel.models),
         }),
     );
@@ -357,10 +413,11 @@ function normalizeChannels(config: AiConfig) {
         channels.push(
             createModelChannel({
                 id: "default",
-                name: "默认渠道",
+                name: defaultChannelName(),
                 baseUrl: config.baseUrl || defaultConfig.baseUrl,
                 apiKey: config.apiKey || "",
                 apiFormat: config.apiFormat || defaultConfig.apiFormat,
+                azureApiVersion: config.azureApiVersion || AZURE_OPENAI_API_VERSION,
                 models: normalizeChannelModels([config.model, config.imageModel, config.videoModel, config.textModel, config.audioModel].map(modelOptionName)),
             }),
         );
@@ -369,13 +426,14 @@ function normalizeChannels(config: AiConfig) {
 }
 
 export function defaultBaseUrlForApiFormat(apiFormat: ApiCallFormat) {
+    if (apiFormat === "azure-openai") return AZURE_OPENAI_BASE_URL;
     if (apiFormat === "gemini") return GEMINI_BASE_URL;
     if (apiFormat === "ark") return ARK_BASE_URL;
     return OPENAI_BASE_URL;
 }
 
 function normalizeApiFormat(apiFormat: unknown): ApiCallFormat {
-    return apiFormat === "gemini" || apiFormat === "ark" ? apiFormat : "openai";
+    return apiFormat === "azure-openai" || apiFormat === "gemini" || apiFormat === "ark" ? apiFormat : "openai";
 }
 
 function uniqueModelOptions(models: string[]) {
@@ -388,6 +446,25 @@ export function buildApiUrl(baseUrl: string, path: string) {
     const lowerBaseUrl = normalizedBaseUrl.toLowerCase();
     const apiBaseUrl = lowerBaseUrl.endsWith("/v1") || lowerBaseUrl.endsWith("/api/v3") || lowerBaseUrl.endsWith("/api/plan/v3") ? normalizedBaseUrl : `${normalizedBaseUrl}/v1`;
     return `${apiBaseUrl}${path}`;
+}
+
+export function buildModelApiUrl(config: Pick<AiConfig, "baseUrl" | "apiFormat" | "azureApiVersion">, path: string) {
+    if (config.apiFormat !== "azure-openai") return buildApiUrl(config.baseUrl, path);
+    const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+    const endpoint = config.baseUrl
+        .trim()
+        .replace(/\/+$/, "")
+        .replace(/\/openai(?:\/v1)?$/i, "");
+    const url = `${endpoint}/openai/v1${normalizedPath}`;
+    const apiVersion = config.azureApiVersion.trim() || AZURE_OPENAI_API_VERSION;
+    return `${url}${url.includes("?") ? "&" : "?"}api-version=${encodeURIComponent(apiVersion)}`;
+}
+
+export function buildModelApiHeaders(config: Pick<AiConfig, "apiKey" | "apiFormat">, contentType?: string) {
+    return {
+        ...(config.apiFormat === "azure-openai" ? { "api-key": config.apiKey } : { Authorization: `Bearer ${config.apiKey}` }),
+        ...(contentType ? { "Content-Type": contentType } : {}),
+    };
 }
 
 function normalizeArkPlanBaseUrl(baseUrl: string) {

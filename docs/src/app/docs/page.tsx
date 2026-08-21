@@ -8,7 +8,7 @@ import type { Metadata } from 'next';
 import { getMDXComponents } from '@/components/mdx';
 
 const title = '无限画布文档';
-const description = '功能说明、操作手册、部署方式、开发文档、商务合作与赞助支持';
+const description = 'V1 现有文档与 V2 后续需求的统一入口';
 
 async function readDocsIndex() {
   return readFile(join(process.cwd(), 'index.md'), 'utf8');

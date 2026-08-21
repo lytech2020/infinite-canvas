@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { Button, Modal, Segmented, Tooltip } from "antd";
 import { Check, X, ZoomIn, ZoomOut } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { useImageEditorViewport } from "@/components/canvas/use-image-editor-viewport";
 import { readImageMeta } from "@/lib/image-utils";
@@ -18,17 +19,10 @@ type ResizeHandle = "n" | "e" | "s" | "w" | "ne" | "nw" | "se" | "sw";
 const handles: ResizeHandle[] = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
 const minSize = 0.06;
 const defaultCrop = { x: 0.12, y: 0.12, width: 0.76, height: 0.76 };
-const ratioOptions = [
-    { label: "自由", value: "free" },
-    { label: "固定", value: "fixed" },
-    { label: "原图", value: "original" },
-    { label: "1:1", value: "1:1" },
-    { label: "4:3", value: "4:3" },
-    { label: "16:9", value: "16:9" },
-    { label: "9:16", value: "9:16" },
-];
+const ratioOptions = ["free", "fixed", "original", "1:1", "4:3", "16:9", "9:16"];
 
 export function CanvasNodeCropDialog({ dataUrl, open, onClose, onConfirm }: { dataUrl: string; open: boolean; onClose: () => void; onConfirm: (crop: CanvasImageCropRect) => void }) {
+    const { t } = useTranslation("canvas");
     const [crop, setCrop] = useState<CanvasImageCropRect>(defaultCrop);
     const [ratioPreset, setRatioPreset] = useState("free");
     const [fixedRatio, setFixedRatio] = useState<number | null>(null);
@@ -77,7 +71,7 @@ export function CanvasNodeCropDialog({ dataUrl, open, onClose, onConfirm }: { da
     };
 
     return (
-        <Modal title="裁剪图片" open={open && Boolean(dataUrl)} onCancel={onClose} footer={null} width={780} centered destroyOnHidden transitionName="" maskTransitionName="">
+        <Modal title={t("dialogs.cropTitle")} open={open && Boolean(dataUrl)} onCancel={onClose} footer={null} width={780} centered destroyOnHidden transitionName="" maskTransitionName="">
             <div className="space-y-4">
                 <div
                     ref={viewport.viewportRef}
@@ -102,7 +96,7 @@ export function CanvasNodeCropDialog({ dataUrl, open, onClose, onConfirm }: { da
                                         className="absolute size-3 rounded-full border border-black bg-white"
                                         style={handleStyle(handle)}
                                         onPointerDown={(event) => startDrag("resize", event, handle)}
-                                        aria-label="调整裁剪框"
+                                        aria-label={t("dialogs.adjustCrop")}
                                     />
                                 ))}
                             </div>
@@ -111,31 +105,31 @@ export function CanvasNodeCropDialog({ dataUrl, open, onClose, onConfirm }: { da
                 </div>
 
                 <div className="flex items-center justify-center gap-1">
-                    <Tooltip title="缩小">
-                        <Button type="text" icon={<ZoomOut className="size-4" />} disabled={!viewport.canZoomOut} aria-label="缩小" onClick={viewport.zoomOut} />
+                    <Tooltip title={t("dialogs.zoomOut")}>
+                        <Button type="text" icon={<ZoomOut className="size-4" />} disabled={!viewport.canZoomOut} aria-label={t("dialogs.zoomOut")} onClick={viewport.zoomOut} />
                     </Tooltip>
                     <button type="button" className="min-w-14 text-center text-xs font-semibold tabular-nums opacity-70" onClick={viewport.resetZoom}>
                         {Math.round(viewport.zoom * 100)}%
                     </button>
-                    <Tooltip title="放大">
-                        <Button type="text" icon={<ZoomIn className="size-4" />} disabled={!viewport.canZoomIn} aria-label="放大" onClick={viewport.zoomIn} />
+                    <Tooltip title={t("dialogs.zoomIn")}>
+                        <Button type="text" icon={<ZoomIn className="size-4" />} disabled={!viewport.canZoomIn} aria-label={t("dialogs.zoomIn")} onClick={viewport.zoomIn} />
                     </Tooltip>
-                    <span className="ml-2 text-xs opacity-55">滚轮缩放 · 中键或空格+左键拖动画面</span>
+                    <span className="ml-2 text-xs opacity-55">{t("dialogs.cropHelp")}</span>
                 </div>
 
                 <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border px-3 py-2">
                     <div className="flex flex-wrap items-center gap-3 text-sm opacity-80">
-                        <span>裁剪尺寸 {cropSize ? `${cropSize.width} x ${cropSize.height}` : "未知"}</span>
-                        <span>比例 {cropSize ? formatRatio(cropSize.width, cropSize.height) : "未知"}</span>
+                        <span>{t("dialogs.cropSize", { size: cropSize ? `${cropSize.width} x ${cropSize.height}` : t("dialogs.unknown") })}</span>
+                        <span>{t("dialogs.ratio", { ratio: cropSize ? formatRatio(cropSize.width, cropSize.height) : t("dialogs.unknown") })}</span>
                         {image ? (
                             <span>
-                                原图 {image.width} x {image.height}
+                                {t("dialogs.originalSize", { size: `${image.width} x ${image.height}` })}
                             </span>
                         ) : null}
                     </div>
                     <Segmented
                         size="small"
-                        options={ratioOptions}
+                        options={ratioOptions.map((value) => ({ label: value === "free" ? t("dialogs.cropFree") : value === "fixed" ? t("dialogs.cropFixed") : value === "original" ? t("dialogs.cropOriginal") : value, value }))}
                         value={ratioPreset}
                         onChange={(value) => {
                             const preset = String(value);
@@ -150,12 +144,12 @@ export function CanvasNodeCropDialog({ dataUrl, open, onClose, onConfirm }: { da
                 </div>
 
                 <div className="flex items-center justify-end gap-2">
-                    <Button onClick={() => setCrop(defaultCrop)}>重置</Button>
+                    <Button onClick={() => setCrop(defaultCrop)}>{t("dialogs.reset")}</Button>
                     <Button icon={<X className="size-4" />} onClick={onClose}>
-                        取消
+                        {t("dialogs.cancel")}
                     </Button>
                     <Button type="primary" icon={<Check className="size-4" />} onClick={() => onConfirm(crop)}>
-                        确认裁剪
+                        {t("dialogs.confirmCrop")}
                     </Button>
                 </div>
             </div>

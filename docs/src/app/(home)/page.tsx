@@ -45,7 +45,7 @@ export default function HomePage() {
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
             <Link
-              href="/docs/overview/quick-start"
+              href="/docs/v1/overview/quick-start"
               className="inline-flex items-center justify-center gap-2 rounded-full bg-zinc-950 px-5 py-3 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-zinc-200"
             >
               <BookOpen className="size-4" />
@@ -89,7 +89,7 @@ export default function HomePage() {
             </h2>
           </div>
           <Link
-            href="/docs/overview/features"
+            href="/docs/v1/overview/features"
             className="inline-flex w-fit items-center gap-1.5 text-sm font-medium text-zinc-800 transition hover:text-zinc-950 dark:text-zinc-200 dark:hover:text-white"
           >
             功能介绍

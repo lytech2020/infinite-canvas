@@ -1,9 +1,5 @@
+# 可选调试覆盖：主 docker-compose.yml 已包含完整前端、后台、PostgreSQL、MinIO 和 bucket 初始化。
 services:
-  app:
-    image: infinite-canvas:local
-    build:
-      context: .
-      dockerfile: Dockerfile
+  server:
     ports:
-      - "3000:3000"
-    restart: unless-stopped
+      - "8787:8787"

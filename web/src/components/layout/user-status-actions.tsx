@@ -1,13 +1,13 @@
 import type { CSSProperties } from "react";
-import { BookOpen, Keyboard, Puzzle, Settings2 } from "lucide-react";
+import { Dropdown } from "antd";
+import { Check, Globe2, Keyboard, Puzzle, Settings2 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { AnimatedThemeToggler } from "@/components/ui/animated-theme-toggler";
-import { GitHubLink } from "@/components/layout/github-link";
-import { VersionReleaseModal } from "@/components/layout/version-release-modal";
-import { DOCS_URL } from "@/constant/env";
-import { cn } from "@/lib/utils";
+import { selectableLocales } from "@/i18n/locale";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { useConfigStore } from "@/stores/use-config-store";
+import { useLocaleStore } from "@/stores/use-locale-store";
 import { useThemeStore } from "@/stores/use-theme-store";
 
 type UserStatusActionsProps = {
@@ -18,36 +18,47 @@ type UserStatusActionsProps = {
 };
 
 export function UserStatusActions({ showConfig = true, variant = "default", onOpenShortcuts, onOpenPlugins }: UserStatusActionsProps) {
+    const { t } = useTranslation("common");
     const theme = useThemeStore((state) => state.theme);
     const setTheme = useThemeStore((state) => state.setTheme);
+    const locale = useLocaleStore((state) => state.locale);
+    const setLocale = useLocaleStore((state) => state.setLocale);
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
     const canvasTheme = canvasThemes[theme];
     const naturalIconClass = "inline-flex size-7 shrink-0 items-center justify-center text-stone-600 transition hover:text-stone-950 dark:text-stone-300 dark:hover:text-white [&_svg]:size-4";
     const iconStyle: CSSProperties | undefined = variant === "canvas" ? { color: canvasTheme.node.text } : undefined;
-    const versionStyle = iconStyle;
-    const gitHubClassName = "size-7 text-base";
-    const gitHubStyle = iconStyle;
 
     return (
         <div className="inline-flex shrink-0 items-center gap-1">
             {onOpenPlugins ? (
-                <button type="button" className={naturalIconClass} style={iconStyle} onClick={onOpenPlugins} aria-label="节点插件" title="节点插件">
+                <button type="button" className={naturalIconClass} style={iconStyle} onClick={onOpenPlugins} aria-label={t("userActions.plugins")} title={t("userActions.plugins")}>
                     <Puzzle className="size-4" />
                 </button>
             ) : null}
-            <a href={DOCS_URL} target="_blank" rel="noopener noreferrer" className={naturalIconClass} style={iconStyle} aria-label="文档" title="文档">
-                <BookOpen className="size-4" />
-            </a>
+            <Dropdown
+                trigger={["click"]}
+                placement="bottomRight"
+                menu={{
+                    items: selectableLocales.map((value) => ({
+                        key: value,
+                        label: value === "zh-CN" ? "简体中文" : "日本語",
+                        icon: locale === value ? <Check className="size-3.5" /> : <span className="inline-block size-3.5" />,
+                        onClick: () => setLocale(value),
+                    })),
+                }}
+            >
+                <button type="button" className={naturalIconClass} style={iconStyle} aria-label={t("userActions.language")} title={t("userActions.language")}>
+                    <Globe2 className="size-4" />
+                </button>
+            </Dropdown>
             {showConfig ? (
-                <button type="button" className={naturalIconClass} style={iconStyle} onClick={() => openConfigDialog(false)} aria-label="配置" title="配置">
+                <button type="button" className={naturalIconClass} style={iconStyle} onClick={() => openConfigDialog(false)} aria-label={t("userActions.config")} title={t("userActions.config")}>
                     <Settings2 className="size-4" />
                 </button>
             ) : null}
-            <AnimatedThemeToggler theme={theme} onThemeChange={setTheme} className={naturalIconClass} style={iconStyle} aria-label={theme === "dark" ? "切换到浅色主题" : "切换到深色主题"} title={theme === "dark" ? "切换到浅色主题" : "切换到深色主题"} />
-            <VersionReleaseModal style={versionStyle} />
-            <GitHubLink className={cn("bg-transparent hover:bg-transparent dark:hover:bg-transparent", gitHubClassName)} style={gitHubStyle} />
+            <AnimatedThemeToggler theme={theme} onThemeChange={setTheme} className={naturalIconClass} style={iconStyle} aria-label={theme === "dark" ? t("userActions.lightTheme") : t("userActions.darkTheme")} title={theme === "dark" ? t("userActions.lightTheme") : t("userActions.darkTheme")} />
             {onOpenShortcuts ? (
-                <button type="button" className={naturalIconClass} style={iconStyle} onClick={onOpenShortcuts} aria-label="快捷键" title="快捷键">
+                <button type="button" className={naturalIconClass} style={iconStyle} onClick={onOpenShortcuts} aria-label={t("userActions.shortcuts")} title={t("userActions.shortcuts")}>
                     <Keyboard className="size-4" />
                 </button>
             ) : null}

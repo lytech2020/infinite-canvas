@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Brush, Camera, Copy, FileText, Grid2x2, Lock, LockOpen, Maximize2, Scissors, Sparkles, Upload, ZoomIn } from "lucide-react";
 
+import i18n from "@/i18n";
 import type { CanvasNodeData } from "@/types/canvas";
 
 export type ImageNodeActionToolId = "copyPrompt" | "reversePrompt" | "replace" | "resize" | "maskEdit" | "crop" | "split" | "upscale" | "superResolve" | "angle" | "view";
@@ -173,5 +174,9 @@ export function readImageQuickToolsConfig(value: unknown): ImageQuickToolsConfig
 }
 
 function resolveToolText(value: string | ((node: CanvasNodeData) => string), node: CanvasNodeData) {
-    return typeof value === "function" ? value(node) : value;
+    const text = typeof value === "function" ? value(node) : value;
+    const keys: Record<string, string> = {
+        "复制提示词": "copyPrompt", "复制生成该图片的提示词": "copyPromptTitle", "反推提示词": "reversePrompt", "创建反推提示词的文本和配置节点": "reversePromptTitle", "替换图片": "replace", "锁比例": "lockRatio", "自由比例": "freeRatio", "切换为等比缩放": "proportionalTitle", "切换为自由比例": "freeTitle", "局部编辑": "maskEdit", "添加蒙版遮罩后局部修改": "maskEditTitle", "裁剪": "crop", "裁剪并生成新节点": "cropTitle", "切图": "split", "按行列切分图片": "splitTitle", "放大": "upscale", "放大图片分辨率": "upscaleTitle", "超分": "superResolve", "AI 超分": "superResolveTitle", "多角度": "angle", "生成角度": "angleTitle", "查看大图": "view", "查看图片详情": "viewTitle",
+    };
+    return keys[text] ? i18n.t(`imageTools.${keys[text]}`, { ns: "canvas" }) : text;
 }

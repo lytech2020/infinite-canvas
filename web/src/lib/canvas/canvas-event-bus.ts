@@ -1,6 +1,5 @@
-import localforage from "localforage";
-
 import type { PluginStorage } from "@/types/canvas-plugin";
+import { createCloudKeyValueStore } from "@/services/api/user-data";
 
 // 画布内轻量事件总线,供节点/插件互相通信
 type Handler = (payload: unknown) => void;
@@ -27,12 +26,12 @@ export function onCanvasEvent(event: string, handler: Handler) {
 }
 
 // 插件私有存储,按 pluginId 命名空间隔离
-const stores = new Map<string, LocalForage>();
+const stores = new Map<string, ReturnType<typeof createCloudKeyValueStore>>();
 
 export function createPluginStorage(pluginId: string): PluginStorage {
     let store = stores.get(pluginId);
     if (!store) {
-        store = localforage.createInstance({ name: "infinite-canvas-plugins", storeName: pluginId });
+        store = createCloudKeyValueStore(`plugin:${pluginId}`);
         stores.set(pluginId, store);
     }
     return {

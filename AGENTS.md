@@ -23,7 +23,7 @@
 
 - 前端使用 Vite、React、React Router、TypeScript、Ant Design、Tailwind、Zustand。
 - 编写 Ant Design 相关代码时，参考 https://ant.design/llms-full.txt 理解组件 API、示例和设计规范，并优先结合项目当前 antd 版本与既有写法。
-- 外部服务请求统一放在 `web/src/services/api/`，由浏览器前端直连，不假设存在项目后端。
+- 前端 API 请求统一放在 `web/src/services/api/`；账号业务数据、AI 生成和文件归属必须经过项目后端，只有公共提示词源和显式 WebDAV 操作允许浏览器直连外部服务。
 - 全局或跨页面状态优先放在 `web/src/stores/`。
 - 已经放在全局 store 或全局 hook 中的状态/动作，组件需要时直接使用对应 store/hook，不要为了“纯组件”层层透传 props；避免一个组件传递过多参数。
 - 全局组件、全局常量、全局配置等全局性质的内容不要作为 props 或参数层层传递；哪里需要就在哪里直接从对应全局入口获取。
@@ -42,7 +42,7 @@
 - 样式优先由组件自己管理；组件私有样式优先使用 Tailwind className 或少量内联 style，不要为单个组件新增大量全局 CSS。
 - 全局 CSS 只放基础变量、全局重置、跨页面通用样式和少量第三方组件必要覆盖；不要在 `globals.css` 堆页面私有样式。
 - 代码尽量短小直接，少拆不必要组件，少做多层 props 传递，避免为了抽象堆出更多代码。
-- 前端业务数据需要浏览器本地持久化时，默认使用 `localforage`；`localStorage` 只用于极小的简单配置，不要用来保存业务列表、生成记录、图片、base64 或大 JSON。
+- 画布、素材、生成记录、插件、提示词源及 Agent 附件等业务数据必须按登录账号保存到云端，不得以浏览器本地存储作为数据源；`localStorage` 只允许保存主题、语言、面板尺寸等无账号归属的设备界面偏好。
 
 ## 画布 UI 规范
 
@@ -58,15 +58,16 @@
 
 ## 文档规范
 
+- 项目文档统一放在 `docs/`；不要再新增 `doc/`。现有文档归档在 `docs/content/docs/v1/`，后续新增需求、方案和验收清单写入 `docs/content/docs/v2/`。
 - README 保持简洁，只放项目介绍、核心功能、快速开始和文档入口。
 - `docs/index.md` 放给 AI 使用的文档索引，不要再放到 `docs/content/docs/` 内容目录里。
-- 详细功能介绍写到 `docs/content/docs/overview/features.mdx`。
-- 后续待办写到 `docs/content/docs/progress/todo.mdx`。
-- 已实现但还需要用户测试确认的事项写到 `docs/content/docs/progress/pending-test.mdx`。
-- `docs/content/docs/progress/pending-test.mdx` 用来记录这个版本实际做了哪些可测试变更；`CHANGELOG.md` 的 `Unreleased` 只保留对这些变更的版本级归纳，避免逐条照搬实现细节。
+- 详细功能介绍写到 `docs/content/docs/v1/overview/features.mdx`。
+- V1 已有待办继续维护在 `docs/content/docs/v1/progress/todo.mdx`；新提出但尚未进入 V1 的后续需求写到 `docs/content/docs/v2/requirements.mdx`。
+- 已实现但还需要用户测试确认的事项写到 `docs/content/docs/v1/progress/pending-test.mdx`。
+- `docs/content/docs/v1/progress/pending-test.mdx` 用来记录这个版本实际做了哪些可测试变更；`CHANGELOG.md` 的 `Unreleased` 只保留对这些变更的版本级归纳，避免逐条照搬实现细节。
 - 每次重大改动（新增/调整/删除功能、接口或工具，影响用户可感知行为）完成后，都要在 `CHANGELOG.md` 的 `Unreleased` 追加一条记录，按 `[新增]` / `[调整]` / `[修复]` / `[优化]` 前缀分类，用一句中文归纳；纯内部重构、格式化、无用户可感知影响的小改动可不记。
-- 每次 todo 事项完成后，先从 `docs/content/docs/progress/todo.mdx` 移到 `docs/content/docs/progress/pending-test.mdx`，不要直接写进正式功能说明；用户确认测试通过后再更新 `docs/content/docs/overview/features.mdx`。
-- 每次任务完成前，都要根据实际变更检查并更新 `docs/content/docs/progress/todo.mdx` 和 `docs/content/docs/progress/pending-test.mdx`；如果功能或待办没有变化，也要确认无需修改。
+- 每次 todo 事项完成后，先从 `docs/content/docs/v1/progress/todo.mdx` 移到 `docs/content/docs/v1/progress/pending-test.mdx`，不要直接写进正式功能说明；用户确认测试通过后再更新 `docs/content/docs/v1/overview/features.mdx`。
+- 每次任务完成前，都要根据实际变更检查并更新 `docs/content/docs/v1/progress/todo.mdx` 和 `docs/content/docs/v1/progress/pending-test.mdx`；如果功能或待办没有变化，也要确认无需修改。
 - 文档不要写过期日期；除非用户明确要求记录具体时间。
 
 ## 发版本流程
@@ -79,7 +80,7 @@
 
 ## 项目注意事项
 
-- 当前画布项目和“我的素材”主要保存在浏览器本地，不要在文档中误写成已支持云同步。
-- 当前 AI API Key 存在浏览器本地，并由前端直接请求 OpenAI 兼容接口；涉及安全说明时要写清楚。
+- 云端版画布项目、素材、生成记录、插件、提示词源及关联媒体都必须按账号隔离保存；新增业务数据时同时提供服务端归属与退出/切号清理。
+- AI 渠道密钥由管理后台加密保存，普通用户只能使用后台下发的模型，前端不得持久化供应商密钥。
 - Docker 静态资源路径目前仍是待办项，文档中不要过度承诺生产部署已经完全验证。
 - Agent 对话消息必须同时按 `threadId`、`turnId` 和 `itemId` 归属；实时事件只用于补充未物化的 turn，历史快照成为权威后不得重复合并同一条消息。

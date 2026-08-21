@@ -1,8 +1,8 @@
-import localforage from "localforage";
-
 import { runPromptSource, type RawPrompt } from "./prompt-source-runtime";
 import { usePromptSourceStore } from "@/stores/use-prompt-source-store";
 import type { PromptSource } from "./prompt-source-presets";
+import { errorText } from "@/i18n/error-text";
+import i18n from "@/i18n";
 
 export type Prompt = RawPrompt & {
     sourceId: string;
@@ -45,7 +45,12 @@ type SourceCache = PromptSourceStatus & {
 };
 
 const cacheTtlMs = 1000 * 60 * 60;
-const promptCacheStore = localforage.createInstance({ name: "infinite-canvas", storeName: "prompt_cache" });
+const promptCache = new Map<string, SourceCache>();
+let cacheVersion = 0;
+const promptCacheStore = {
+    getItem: async <T>(key: string) => (promptCache.get(key) as T | undefined) || null,
+    setItem: async (key: string, value: SourceCache) => void promptCache.set(key, value),
+};
 const loadingSources = new Map<string, Promise<PromptSourceRefreshResult>>();
 
 function enabledSources() {
@@ -79,12 +84,13 @@ async function readSourceCache(sourceId: string) {
 }
 
 async function refreshSourceRecord(source: PromptSource): Promise<PromptSourceRefreshResult> {
+    const version = cacheVersion;
     const previous = await readSourceCache(source.id);
     try {
         const items = withSourceMeta(source, await runPromptSource(source));
         const lastSuccessAt = new Date().toISOString();
         const cache: SourceCache = { sourceId: source.id, items, count: items.length, fetchedAt: Date.now(), lastSuccessAt, lastError: "", signature: sourceSignature(source) };
-        await promptCacheStore.setItem(cacheKey(source.id), cache);
+        if (version === cacheVersion) await promptCacheStore.setItem(cacheKey(source.id), cache);
         return { sourceId: source.id, sourceName: source.name, count: items.length, lastSuccessAt, lastError: "", success: true };
     } catch (error) {
         const lastError = error instanceof Error ? error.message : String(error);
@@ -97,15 +103,23 @@ async function refreshSourceRecord(source: PromptSource): Promise<PromptSourceRe
             lastError,
             signature: previous?.signature || sourceSignature(source),
         };
-        await promptCacheStore.setItem(cacheKey(source.id), cache);
+        if (version === cacheVersion) await promptCacheStore.setItem(cacheKey(source.id), cache);
         return { sourceId: source.id, sourceName: source.name, count: cache.count, lastSuccessAt: cache.lastSuccessAt, lastError, success: false };
     }
+}
+
+export function resetPromptCache() {
+    cacheVersion += 1;
+    promptCache.clear();
+    loadingSources.clear();
 }
 
 function getOrStartRefresh(source: PromptSource) {
     const current = loadingSources.get(source.id);
     if (current) return current;
-    const loading = refreshSourceRecord(source).finally(() => loadingSources.delete(source.id));
+    const loading = refreshSourceRecord(source).finally(() => {
+        if (loadingSources.get(source.id) === loading) loadingSources.delete(source.id);
+    });
     loadingSources.set(source.id, loading);
     return loading;
 }
@@ -154,13 +168,13 @@ export async function fetchPrompts({ keyword = "", tag = [], category = ALL_PROM
 
 export async function fetchSourcePrompts(sourceId: string): Promise<Prompt[]> {
     const source = usePromptSourceStore.getState().sources.find((item) => item.id === sourceId);
-    if (!source) throw new Error("提示词来源不存在");
+    if (!source) throw new Error(errorText("promptSourceMissing"));
     return getSourcePrompts(source);
 }
 
 export async function refreshSource(sourceId: string): Promise<PromptSourceRefreshResult> {
     const source = usePromptSourceStore.getState().sources.find((item) => item.id === sourceId);
-    if (!source) throw new Error("提示词来源不存在");
+    if (!source) throw new Error(errorText("promptSourceMissing"));
     const result = await getOrStartRefresh(source);
     if (!result.success) throw new Error(result.lastError);
     return result;
@@ -221,5 +235,5 @@ function isActiveOption(value: string) {
 
 export function formatPromptDate(value: string) {
     const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? "" : new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
+    return Number.isNaN(date.getTime()) ? "" : new Intl.DateTimeFormat(i18n.resolvedLanguage || i18n.language, { year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
 }
