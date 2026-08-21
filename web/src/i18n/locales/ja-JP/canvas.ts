@@ -4,7 +4,7 @@ export default {
     importFailed: "読み込みに失敗しました。有効なキャンバス ZIP を選択してください",
     opening: "キャンバスを開いています...",
     library: "キャンバスライブラリ",
-    title: "Infinite Canvas",
+    title: "Measure NAVI Canvas",
     exportSelected: "選択項目を書き出す",
     deleteSelected: "選択項目を削除",
     deleteAll: "すべて削除",
@@ -13,7 +13,7 @@ export default {
     loading: "キャンバスを読み込んでいます...",
     emptyTitle: "キャンバスはまだありません",
     emptyDescription: "新しいキャンバスを作成すると、ノード、接続、表示設定を個別に保存できます。",
-    exportName: "Infinite-Canvas-{{count}}-projects",
+    exportName: "Measure-NAVI-Canvas-{{count}}-projects",
     deleteDialog: {
         title: "キャンバスを削除しますか？",
         description: "{{count}} 件のキャンバスと、その中のノードおよび接続を削除します。",
