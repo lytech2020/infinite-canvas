@@ -77,8 +77,7 @@ bun run dev
 git clone git@github.com:basketikun/infinite-canvas.git
 cd infinite-canvas
 cp .env.example .env
-docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
-docker compose -f docker-compose.yml -f docker-compose.local.yml exec server node dist/prisma/seed.js
+docker compose up -d --build
 ```
 
 运行后默认端口3000，可访问 `http://localhost:3000`。

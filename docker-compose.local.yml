@@ -1,48 +1,5 @@
-# 本地全容器开发覆盖：在生产 Compose 基础上补充 MinIO 和初始化 bucket。
+# 可选调试覆盖：主 docker-compose.yml 已包含完整前端、后台、PostgreSQL、MinIO 和 bucket 初始化。
 services:
   server:
-    depends_on:
-      minio-init:
-        condition: service_completed_successfully
-    environment:
-      SESSION_COOKIE_SECURE: "false"
-      S3_ENDPOINT: http://minio:9000
-      S3_PUBLIC_ENDPOINT: http://localhost:9000
-      S3_REGION: us-east-1
-      S3_BUCKET: infinite-canvas
-      S3_ACCESS_KEY_ID: infinite_canvas
-      S3_SECRET_ACCESS_KEY: infinite_canvas
-      S3_FORCE_PATH_STYLE: "true"
     ports:
       - "8787:8787"
-
-  minio:
-    image: minio/minio:latest
-    container_name: infinite-canvas-minio
-    command: server /data --console-address=:9001
-    environment:
-      MINIO_ROOT_USER: infinite_canvas
-      MINIO_ROOT_PASSWORD: infinite_canvas
-      MINIO_API_CORS_ALLOW_ORIGIN: "*"
-    ports:
-      - "9000:9000"
-      - "9001:9001"
-    volumes:
-      - minio-data:/data
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-
-  minio-init:
-    image: minio/mc:latest
-    depends_on:
-      minio:
-        condition: service_healthy
-    entrypoint: ["/bin/sh", "-c"]
-    command: ["mc alias set local http://minio:9000 infinite_canvas infinite_canvas && mc mb --ignore-existing local/infinite-canvas"]
-
-volumes:
-  minio-data:

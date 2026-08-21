@@ -25,6 +25,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
     environment:
       DATABASE_URL: ${DATABASE_URL:?请设置 DATABASE_URL}
       NODE_ENV: production
@@ -78,5 +80,34 @@ services:
       timeout: 5s
       retries: 12
 
+  minio:
+    image: minio/minio:latest
+    container_name: infinite-canvas-minio
+    command: server /data --console-address=:9001
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-infinite_canvas}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-infinite_canvas}
+      MINIO_API_CORS_ALLOW_ORIGIN: ${MINIO_API_CORS_ALLOW_ORIGIN:-*}
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-infinite_canvas} ${MINIO_ROOT_PASSWORD:-infinite_canvas} && mc mb --ignore-existing local/${S3_BUCKET:-infinite-canvas}"]
+
 volumes:
   db-data:
+  minio-data:
