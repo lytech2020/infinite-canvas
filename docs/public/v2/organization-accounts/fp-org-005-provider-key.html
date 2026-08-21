@@ -30,7 +30,7 @@ ProviderBindings --> ProviderEdit: 新建/编辑专属渠道
 ProviderEdit --> ProviderBindings: 保存成功
 ProviderEdit --> ProviderEdit: 连接校验失败
 ProviderBindings --> CompanyDetail: 返回</pre></div></section>
-<section id="s9"><h2>9. API 详细设计</h2><table><tr><th>方法</th><th>路径</th><th>说明</th></tr><tr><td>GET/POST/PATCH</td><td>/api/v1/admin/providers</td><td>增加作用域；响应密钥脱敏</td></tr><tr><td>GET/PUT</td><td>/api/v1/admin/companies/{id}/provider-bindings</td><td>公司模型路由</td></tr><tr><td>无</td><td>公司管理员 API</td><td>不提供渠道配置能力</td></tr></table><div class="diagram"><pre class="mermaid">sequenceDiagram
+<section id="s9"><h2>9. API 详细设计</h2><table><tr><th>方法</th><th>路径</th><th>说明</th></tr><tr><td>GET/POST/PATCH</td><td>/api/v1/admin/providers</td><td>增加作用域；响应密钥脱敏</td></tr><tr><td>GET/PUT</td><td>/api/v1/admin/companies/{companyId}/provider-bindings</td><td>公司模型路由</td></tr><tr><td>无</td><td>公司管理员 API</td><td>不提供渠道配置能力</td></tr></table><div class="diagram"><pre class="mermaid">sequenceDiagram
 participant G as 生成网关
 participant R as 路由服务
 participant DB as DB

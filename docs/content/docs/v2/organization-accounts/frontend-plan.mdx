@@ -38,6 +38,8 @@ type CloudUser = {
 
 - 删除注册 Tab、注册请求和注册链接。
 - 登录成功但 `mustChangePassword=true` 时只能进入强制改密页。
+- 强制改密页复用既有 `POST /api/v1/auth/password`，提交 `currentPassword` 和 `newPassword`；must-change 状态下服务端白名单仅允许 `GET /auth/me`、`POST /auth/password`、`POST /auth/logout`。
+- 公司创建成员和平台重置生成的一次性密码必须符合认证服务统一规则，首期为 8～16 位，确保可以直接通过登录接口。
 - 强制改密完成后重新请求 `/auth/me`，再进入正常页面。
 - `ACCOUNT_DISABLED`、`ACCOUNT_ARCHIVED`、`COMPANY_DISABLED`、`MUST_CHANGE_PASSWORD` 使用稳定错误码渲染中日文文案。
 
@@ -108,8 +110,8 @@ web/src/pages/settings/usage/
 前端请求统一放在 `web/src/services/api/`：
 
 - `admin-companies.ts`：公司、平台公司管理员、公司模型、Provider 绑定和公司积分。
-- `admin-pricing.ts`：价格草稿、试算、发布和价格版本。
-- `company.ts`：成员、成员模型、成员额度、公司用量和内容审查。
+- `admin-pricing.ts`：价格草稿、试算、发布、价格版本、公司计费模式覆盖和 Hard 暂停恢复。
+- `company.ts`：成员、成员模型、成员额度、公司用量、CSV 导出和内容审查；路径参数统一使用 `userId`。
 - `usage.ts`：成员本人额度与明细。
 
 任何服务都不接收或返回供应商 Key 明文。公司端类型中不出现 Base URL、Deployment 或 API Version 字段。
@@ -147,6 +149,8 @@ web/src/pages/settings/usage/
 - 用量来源：provider / estimated。
 - 计费模式：Shadow / Soft / Hard。
 
+平台公司详情显示“全局默认、公司覆盖、当前有效模式”三个值；公司覆盖只允许平台管理员设置为继承、Shadow、Soft 或 Hard。运维健康页显示 company+model 活动暂停，恢复操作必须填写原因和证据引用。公司管理员和成员只能看到当前有效模式及可用状态，不能修改模式或恢复暂停。
+
 Shadow 显示“模拟积分”，不能与真实余额混合。Soft 显示预警但不伪装成阻断；Hard 才显示因额度不足被拒绝。
 
 ## 10. 敏感内容审查
@@ -160,6 +164,10 @@ Shadow 显示“模拟积分”，不能与真实余额混合。Soft 显示预�
 - 媒体由单独 POST 请求内联审计后签发 TTL≤60 秒的一次性兑换 token；前端先调用兑换接口取得绑定当前会话和 upload 的 TTL≤60 秒同源 stream URL，再把它交给图片、视频或音频组件。兑换 token 只能消费一次，但 stream URL 在窗口内允许浏览器多次 Range 请求，以支持探测、续传和拖动；不得暴露对象存储预签名地址。
 - 审查媒体响应必须使用 `Cache-Control: no-store, private`，前端不得把兑换 token 或 stream URL 写入全局 store、localStorage、日志或下载历史。
 - 不提供提示词、生成内容或附件批量导出。
+
+成员本人查看生成结果时，任务响应只接收 `uploadId`、`mimeType`、`size` 和同源 `/api/v1/uploads/{uploadId}/content` 地址，该响应固定 `Cache-Control: no-store, private`。页面不得接收、缓存或复用对象存储预签名下载 URL；账号或公司状态变化后，旧页面的下一次媒体请求必须由服务端重新鉴权并立即失败。
+
+平台与公司用量 CSV 导出都必须选择起止时间，前端限制为最多 31 天并展示最多 20000 行说明；服务端仍是权威校验。收到 `EXPORT_RANGE_TOO_LARGE` 时提示缩小范围，不展示或下载部分文件。
 
 ## 11. 国际化
 
@@ -177,15 +185,22 @@ Shadow 显示“模拟积分”，不能与真实余额混合。Soft 显示预�
 - MEMBER_PERIOD_LIMIT
 - COMPANY_CONCURRENCY_LIMIT
 - MEMBER_CONCURRENCY_LIMIT
+- MODEL_BILLING_SUSPENDED
+- BILLING_SUSPENSION_NOT_RECOVERABLE
+- EXPORT_RANGE_TOO_LARGE
 
 ## 12. 前端验收
 
 - [ ] 普通用户不能看到注册入口。
 - [ ] 初始密码用户无法绕过强制改密页。
+- [ ] 8～16 位一次性初始/重置密码可登录，强制改密复用 `/auth/password`，must-change 白名单外请求全部被拒绝。
 - [ ] 平台、公司管理员和成员只能看到各自路由入口。
 - [ ] 退出和切号后所有公司业务缓存清空。
 - [ ] 本会话授权修改后主动刷新；其他终端在页面聚焦或 60 秒 TTL 内刷新，若期间提交失效模型则由服务端拒绝并以错误码强制刷新。
 - [ ] 公司管理员无法编辑自己或同级管理员。
 - [ ] 公司端任何响应和页面均不出现供应商上游配置。
 - [ ] Shadow、Soft、Hard 的展示和阻断语义准确。
+- [ ] 平台可逐公司设置继承/Shadow/Soft/Hard；Hard 暂停恢复必须填写原因和证据，其他角色无入口。
+- [ ] 平台和公司 CSV 都要求 ≤31 天且 ≤20000 行，超限不下载部分文件。
+- [ ] 成员生成结果只使用带 uploadId 的认证同源 content URL 且响应 no-store；停用或归档后旧页面无法继续下载。
 - [ ] 敏感内容每次打开都有对应审计；媒体兑换 token 只能消费一次，短时 stream URL 仅同会话同资源可 Range 读取且响应 no-store，页面不获得对象存储预签名下载地址。

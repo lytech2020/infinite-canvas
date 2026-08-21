@@ -3,6 +3,7 @@
   "defaultOpen": true,
   "pages": [
     "acceptance",
+    "initial-credit-pricing-shadow-plan",
     "frontend-plan",
     "regression-checklist"
   ]

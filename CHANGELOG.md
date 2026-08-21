@@ -3,6 +3,7 @@
 ## Unreleased
 
 + [调整] Docker 默认 Compose 内置 MinIO 与 bucket 初始化，测试部署不再需要叠加本地覆盖文件。
++ [调整] Web 端品牌名称统一为 Measure NAVI Canvas，并替换为新的 PNG Logo。
 
 ## v0.18.0 - 2026-08-18
 

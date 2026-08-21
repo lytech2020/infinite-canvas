@@ -27,7 +27,7 @@ CreateCompany --> CompanyDetail: 创建成功
 CreateCompany --> CreateCompany: 校验错误
 CompanyList --> CompanyDetail: 查看
 CompanyDetail --> CompanyList: 返回</pre></div></section>
-<section id="s9"><h2>9. API 详细设计</h2><table><tr><th>方法</th><th>路径</th><th>要点</th></tr><tr><td>GET/POST</td><td>/api/v1/admin/companies</td><td>分页筛选；创建使用独立 <code>Idempotency-Key</code> 请求头，与生成 requestId 无关</td></tr><tr><td>GET/PATCH</td><td>/api/v1/admin/companies/{id}</td><td>详情与名称、状态修改</td></tr><tr><td>PATCH</td><td>/api/v1/admin/users/{id}/status</td><td>仅平台管理员可停用、归档或恢复公司管理员；操作前保证该公司至少保留一个 active company_admin</td></tr><tr><td>PATCH</td><td>/api/v1/admin/users/{id}/company-role</td><td>仅平台管理员任免公司管理员；降级前执行最后管理员保护</td></tr></table><div class="diagram"><pre class="mermaid">sequenceDiagram
+<section id="s9"><h2>9. API 详细设计</h2><table><tr><th>方法</th><th>路径</th><th>要点</th></tr><tr><td>GET/POST</td><td>/api/v1/admin/companies</td><td>分页筛选；创建使用独立 <code>Idempotency-Key</code> 请求头，与生成 requestId 无关</td></tr><tr><td>GET/PATCH</td><td>/api/v1/admin/companies/{companyId}</td><td>详情与名称、状态修改</td></tr><tr><td>PATCH</td><td>/api/v1/admin/users/{userId}/status</td><td>仅平台管理员可停用、归档或恢复公司管理员；操作前保证该公司至少保留一个 active company_admin</td></tr><tr><td>PATCH</td><td>/api/v1/admin/users/{userId}/company-role</td><td>仅平台管理员任免公司管理员；降级前执行最后管理员保护</td></tr></table><div class="diagram"><pre class="mermaid">sequenceDiagram
 actor A as 平台管理员
 participant UI as 公司后台
 participant API as Admin API

@@ -2,7 +2,7 @@ export default {
     loadPromptsFailed: "プロンプトを取得できませんでした",
     hero: {
         lead: "",
-        brand: "Infinite Canvas",
+        brand: "Measure NAVI Canvas",
         middle: "で",
         objects: "画像・テキスト・図形",
         end: "を生成し、つなぎ、組み替える。ひとつの生成を、連続する創作へ。",

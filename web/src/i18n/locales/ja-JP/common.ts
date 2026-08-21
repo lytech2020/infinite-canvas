@@ -1,6 +1,6 @@
 export default {
-    productName: "Infinite Canvas",
-    browserTitle: "キャンバス",
+    productName: "Measure NAVI Canvas",
+    browserTitle: "Measure NAVI Canvas",
     actions: {
         edit: "編集",
         done: "完了",
