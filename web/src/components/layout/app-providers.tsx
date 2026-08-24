@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { App, ConfigProvider } from "antd";
 import enUS from "antd/locale/en_US";
 import jaJP from "antd/locale/ja_JP";
+import koKR from "antd/locale/ko_KR";
 import zhCN from "antd/locale/zh_CN";
 
 import { ClientRootInit } from "@/components/layout/client-root-init";
@@ -22,7 +23,7 @@ const queryClient = new QueryClient({
         },
     },
 });
-const antdLocales = { "zh-CN": zhCN, "ja-JP": jaJP, "en-US": enUS };
+const antdLocales = { "zh-CN": zhCN, "ja-JP": jaJP, "en-US": enUS, "ko-KR": koKR };
 
 export function AppProviders({ children }: { children: ReactNode }) {
     const theme = useThemeStore((state) => state.theme);

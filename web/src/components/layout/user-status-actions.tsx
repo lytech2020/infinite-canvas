@@ -41,7 +41,7 @@ export function UserStatusActions({ showConfig = true, variant = "default", onOp
                 menu={{
                     items: selectableLocales.map((value) => ({
                         key: value,
-                        label: value === "zh-CN" ? "简体中文" : "日本語",
+                        label: { "zh-CN": "简体中文", "ja-JP": "日本語", "en-US": "English", "ko-KR": "한국어" }[value],
                         icon: locale === value ? <Check className="size-3.5" /> : <span className="inline-block size-3.5" />,
                         onClick: () => setLocale(value),
                     })),

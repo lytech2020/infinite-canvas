@@ -105,6 +105,8 @@ export default {
         options: {
             zhCN: "简体中文",
             jaJP: "日本語",
+            enUS: "English",
+            koKR: "한국어",
         },
     },
     preferences: {
