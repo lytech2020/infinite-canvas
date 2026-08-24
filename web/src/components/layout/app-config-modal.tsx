@@ -47,7 +47,7 @@ export function AppConfigPanel({ showDoneButton = false }: { showDoneButton?: bo
                                 <Form.Item label={t("language.label", { ns: "config" })} extra={t("language.description", { ns: "config" })} className="mb-5 max-w-sm">
                                     <Select
                                         value={locale}
-                                        options={selectableLocales.map((value) => ({ value, label: t(value === "ja-JP" ? "language.options.jaJP" : "language.options.zhCN", { ns: "config" }) }))}
+                                        options={selectableLocales.map((value) => ({ value, label: t(`language.options.${{ "zh-CN": "zhCN", "ja-JP": "jaJP", "en-US": "enUS", "ko-KR": "koKR" }[value]}`, { ns: "config" }) }))}
                                         onChange={setLocale}
                                     />
                                 </Form.Item>

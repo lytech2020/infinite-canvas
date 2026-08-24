@@ -5,14 +5,14 @@ import dayjs, { type Dayjs } from "dayjs";
 import { saveAs } from "file-saver";
 import { Download } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 
-import { AdminPageHeader, capabilityLabels, integer, MetricCard, statusLabels } from "@/pages/admin/components";
+import { AdminPageHeader, capabilities, integer, MetricCard, statuses } from "@/pages/admin/components";
 import { downloadAdminUsage, fetchAdminModels, fetchAdminUsage, type Capability, type JobStatus, type UsageFilters } from "@/services/api/admin";
 import { fetchAdminUsers } from "@/services/api/auth";
 
-const usageSourceLabels: Record<string, string> = { provider: "供应商", estimated: "估算", none: "无用量" };
-
 export default function AdminUsagePage() {
+    const { t } = useTranslation("admin");
     const { message } = App.useApp();
     const [searchParams] = useSearchParams();
     const [page, setPage] = useState(1);
@@ -48,7 +48,7 @@ export default function AdminUsagePage() {
         try {
             saveAs(await downloadAdminUsage(filters), `usage-${dayjs().format("YYYY-MM-DD")}.csv`);
         } catch (error) {
-            message.error(error instanceof Error ? error.message : "导出失败");
+            message.error(error instanceof Error ? error.message : t("usage.exportFailed"));
         } finally {
             setExporting(false);
         }
@@ -57,11 +57,11 @@ export default function AdminUsagePage() {
     return (
         <div className="mx-auto max-w-7xl">
             <AdminPageHeader
-                title="用量明细"
-                description="按任务查看模型、Token、媒体用量和状态。"
+                title={t("nav.usage")}
+                description={t("usage.description")}
                 extra={
                     <Button icon={<Download className="size-4" />} loading={exporting} onClick={() => void exportCsv()}>
-                        导出 CSV
+                        {t("usage.export")}
                     </Button>
                 }
             />
@@ -71,7 +71,7 @@ export default function AdminUsagePage() {
                     allowClear
                     showSearch
                     filterOption={false}
-                    placeholder="选择用户"
+                    placeholder={t("usage.selectUser")}
                     value={userId}
                     onSearch={setUserKeyword}
                     onChange={(value) => resetPage(setUserId, value)}
@@ -80,7 +80,7 @@ export default function AdminUsagePage() {
                 <Select
                     className="w-44"
                     allowClear
-                    placeholder="选择模型"
+                    placeholder={t("usage.selectModel")}
                     value={modelId}
                     onChange={(value) => resetPage(setModelId, value)}
                     options={models.data?.items.map((model) => ({ value: model.id, label: model.displayName }))}
@@ -88,31 +88,31 @@ export default function AdminUsagePage() {
                 <Select
                     className="w-32"
                     allowClear
-                    placeholder="生成类型"
+                    placeholder={t("usage.generationType")}
                     value={capability}
                     onChange={(value) => resetPage(setCapability, value)}
-                    options={Object.entries(capabilityLabels).map(([value, label]) => ({ value, label }))}
+                    options={capabilities.map((value) => ({ value, label: t(`common.${value}`) }))}
                 />
                 <Select
                     className="w-32"
                     allowClear
-                    placeholder="任务状态"
+                    placeholder={t("usage.taskStatus")}
                     value={status}
                     onChange={(value) => resetPage(setStatus, value)}
-                    options={Object.entries(statusLabels).map(([value, label]) => ({ value, label }))}
+                    options={statuses.map((value) => ({ value, label: t(`common.${value}`) }))}
                 />
                 <Input.Search
                     className="w-52"
                     allowClear
                     defaultValue={projectId}
-                    placeholder="按项目 ID 筛选"
+                    placeholder={t("usage.projectFilter")}
                     onSearch={(value) => resetPage(setProjectId, value.trim() || undefined)}
                 />
                 <DatePicker.RangePicker value={dates} onChange={(value) => resetPage(setDates, value as [Dayjs, Dayjs] | null)} />
             </div>
             <section className="mb-6 grid gap-3 sm:grid-cols-2">
-                <MetricCard label="筛选结果" value={integer(data?.summary.calls)} secondary="已记录用量" />
-                <MetricCard label="总 Token" value={integer(data?.summary.totalTokens)} />
+                <MetricCard label={t("usage.filtered")} value={integer(data?.summary.calls)} secondary={t("usage.recorded")} />
+                <MetricCard label={t("usage.totalTokens")} value={integer(data?.summary.totalTokens)} />
             </section>
             <Table
                 rowKey="jobId"
@@ -121,19 +121,19 @@ export default function AdminUsagePage() {
                 scroll={{ x: 1050 }}
                 pagination={{ current: page, pageSize, total: data?.total || 0, showSizeChanger: false, onChange: setPage }}
                 columns={[
-                    { title: "时间", dataIndex: "createdAt", width: 160, render: (value) => dayjs(value).format("YYYY-MM-DD HH:mm") },
-                    { title: "用户", dataIndex: "userEmail", width: 200, ellipsis: true },
-                    { title: "项目", dataIndex: "projectName", width: 150, ellipsis: true, render: (value) => value || "独立工作台" },
-                    { title: "模型", dataIndex: "modelName", width: 150, ellipsis: true },
-                    { title: "类型", dataIndex: "capability", width: 80, render: (value) => capabilityLabels[value as Capability] },
+                    { title: t("common.time"), dataIndex: "createdAt", width: 160, render: (value) => dayjs(value).format("YYYY-MM-DD HH:mm") },
+                    { title: t("common.user"), dataIndex: "userEmail", width: 200, ellipsis: true },
+                    { title: t("common.project"), dataIndex: "projectName", width: 150, ellipsis: true, render: (value) => value || t("common.standalone") },
+                    { title: t("common.model"), dataIndex: "modelName", width: 150, ellipsis: true },
+                    { title: t("common.type"), dataIndex: "capability", width: 80, render: (value) => t(`common.${value}`) },
                     {
-                        title: "状态",
+                        title: t("common.status"),
                         dataIndex: "status",
                         width: 90,
-                        render: (value) => <Tag color={value === "succeeded" ? "green" : value === "failed" ? "red" : undefined}>{statusLabels[value as JobStatus]}</Tag>,
+                        render: (value) => <Tag color={value === "succeeded" ? "green" : value === "failed" ? "red" : undefined}>{t(`common.${value}`)}</Tag>,
                     },
                     { title: "Token", dataIndex: "totalTokens", width: 100, align: "right", render: integer },
-                    { title: "用量来源", dataIndex: "usageSource", width: 100, render: (value) => usageSourceLabels[value as string] || "—" },
+                    { title: t("usage.usageSource"), dataIndex: "usageSource", width: 100, render: (value) => value === "provider" ? t("usage.provider") : value === "estimated" ? t("usage.estimated") : value === "none" ? t("usage.noUsage") : "—" },
                 ]}
             />
         </div>

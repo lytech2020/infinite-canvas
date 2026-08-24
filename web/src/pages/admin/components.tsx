@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import i18n from "@/i18n";
 
 export function AdminPageHeader({ title, description, extra }: { title: string; description: string; extra?: ReactNode }) {
     return (
@@ -23,8 +24,9 @@ export function MetricCard({ label, value, secondary }: { label: string; value: 
 }
 
 export function integer(value: number | null | undefined) {
-    return new Intl.NumberFormat("zh-CN").format(value || 0);
+    return new Intl.NumberFormat(i18n.resolvedLanguage || i18n.language).format(value || 0);
 }
-
+export const capabilities = ["text", "image", "video", "audio"] as const;
+export const statuses = ["queued", "running", "succeeded", "failed", "cancelled"] as const;
+// Kept for catalog compatibility until its form labels are moved into the admin namespace.
 export const capabilityLabels = { text: "文本", image: "图片", video: "视频", audio: "音频" } as const;
-export const statusLabels = { queued: "排队中", running: "生成中", succeeded: "成功", failed: "失败", cancelled: "已取消" } as const;
