@@ -4,6 +4,7 @@
   "pages": [
     "acceptance",
     "initial-credit-pricing-shadow-plan",
+    "credit-jpy-pricing-margin",
     "frontend-plan",
     "regression-checklist"
   ]

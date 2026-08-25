@@ -59,6 +59,8 @@
 
 - [V2 后续需求](/docs/v2/requirements)
 - [组织账号与积分体系验收清单](/docs/v2/organization-accounts/acceptance)
+- [首版积分价格与 Shadow 试算方案](/docs/v2/organization-accounts/initial-credit-pricing-shadow-plan)
+- [积分日元定价与利润测算](/docs/v2/organization-accounts/credit-jpy-pricing-margin)
 - [组织账号与积分前端改造计划](/docs/v2/organization-accounts/frontend-plan)
 - [组织账号改造 V1 回归清单](/docs/v2/organization-accounts/regression-checklist)
 

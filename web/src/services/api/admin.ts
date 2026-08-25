@@ -71,7 +71,7 @@ export type PromptDetail = {
 export type AdminProvider = {
     id: string;
     name: string;
-    apiFormat: "openai" | "azure_openai" | "gemini" | "ark";
+    apiFormat: "openai" | "openrouter" | "azure_openai" | "gemini" | "ark";
     baseUrl: string;
     apiKeyMask: string;
     apiVersion: string | null;

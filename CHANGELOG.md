@@ -2,6 +2,11 @@
 
 ## Unreleased
 
++ [新增] 模型渠道接口格式新增 OpenRouter，可通过后台配置 OpenRouter 渠道和模型。
+
+## v0.18.1 - 2026-08-24
+
++ [新增] 补充组织账号积分的日元售价、供应商成本、直接毛利及视频规格风险测算方案。
 + [调整] Docker 默认 Compose 内置 MinIO 与 bucket 初始化，测试部署不再需要叠加本地覆盖文件。
 + [调整] Web 端品牌名称统一为 Measure NAVI Canvas，并替换为新的 PNG Logo。
 
