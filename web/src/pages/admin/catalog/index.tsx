@@ -32,6 +32,7 @@ type ModelForm = {
 };
 const apiFormats = [
     { value: "openai", label: "OpenAI 兼容" },
+    { value: "openrouter", label: "OpenRouter" },
     { value: "azure_openai", label: "Azure OpenAI" },
     { value: "gemini", label: "Google Gemini（后台适配中）", disabled: true },
     { value: "ark", label: "火山方舟" },
