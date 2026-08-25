@@ -87,6 +87,7 @@ model UserData {
 
 enum ApiFormat {
     openai
+    openrouter
     azure_openai
     gemini
     ark

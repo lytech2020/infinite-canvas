@@ -23,7 +23,7 @@ export const fileLimitsSchema = z
 
 export const providerBody = z.object({
     name: z.string().trim().min(1).max(60),
-    apiFormat: z.enum(["openai", "azure_openai", "gemini", "ark"]),
+    apiFormat: z.enum(["openai", "openrouter", "azure_openai", "gemini", "ark"]),
     baseUrl: z.string().url(),
     apiKey: z.string().min(1).optional(),
     apiVersion: z.string().trim().max(60).nullish(),
