@@ -429,6 +429,58 @@ test("云端后台安全与并发集成测试", { timeout: 600_000 }, async (t) 
         assert.equal((audioUsage.mediaUnits as { audioCharacters: number }).audioCharacters, 4);
     });
 
+    await t.test("OpenRouter 参考图通过 images JSON 接口提交", async () => {
+        const account = await createUser(admin, "openrouter-image");
+        const providerResult = await admin.request("/api/v1/admin/providers", {
+            method: "POST",
+            body: { name: unique("openrouter"), apiFormat: "openrouter", baseUrl: seededProvider.baseUrl, apiKey: "mock-openrouter-key" },
+        });
+        assert.equal(providerResult.status, 200, JSON.stringify(providerResult.body));
+        const modelResult = await admin.request("/api/v1/admin/models", {
+            method: "POST",
+            body: { providerId: providerResult.body.data.provider.id, displayName: unique("openrouter-image"), remoteName: "openai/gpt-image-2", capability: "image" },
+        });
+        assert.equal(modelResult.status, 200, JSON.stringify(modelResult.body));
+
+        const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
+        const presign = await account.session.request("/api/v1/uploads/presign", { method: "POST", body: { mimeType: "image/png", size: png.length } });
+        assert.equal((await fetch(presign.body.data.url, { method: "PUT", headers: { "Content-Type": "image/png" }, body: png })).status, 200);
+        assert.equal((await account.session.request(`/api/v1/uploads/${presign.body.data.uploadId}/complete`, { method: "POST" })).status, 200);
+
+        await mockReset();
+        const created = await submit(account.session, modelResult.body.data.model.id, unique("openrouter-reference"), {
+            capability: "image",
+            prompt: "保留参考图主体",
+            params: { size: "1024x1024", count: 1 },
+            fileIds: [presign.body.data.uploadId],
+        });
+        assert.equal((await waitJob(account.session, created.body.data.job.id)).status, "succeeded");
+        const stats = await mockStats();
+        assert.equal(stats.paths["/api/v1/images"], 1);
+        assert.equal(Object.entries(stats.paths).filter(([path]) => path.endsWith("/images/edits")).reduce((sum, [, count]) => sum + count, 0), 0);
+
+        const unsafe = await submit(account.session, modelResult.body.data.model.id, unique("openrouter-unsafe"), { capability: "image", prompt: "[unsafe-html]" });
+        const unsafeJob = await waitJob(account.session, unsafe.body.data.job.id);
+        assert.equal(unsafeJob.status, "failed");
+        assert.equal(unsafeJob.errorCode, "PROVIDER_ERROR");
+        await waitForNoObjects(`outputs/${account.user.id}/${unsafeJob.id}/`);
+
+        const maskOnly = await submit(account.session, modelResult.body.data.model.id, unique("openrouter-mask"), {
+            capability: "image",
+            params: { maskFileId: presign.body.data.uploadId },
+            fileIds: [presign.body.data.uploadId],
+        });
+        assert.equal(maskOnly.body.error?.code, "VALIDATION_FAILED");
+
+        const videoModel = await admin.request("/api/v1/admin/models", {
+            method: "POST",
+            body: { providerId: providerResult.body.data.provider.id, displayName: unique("openrouter-video"), remoteName: "openai/sora-2", capability: "video" },
+        });
+        assert.equal(videoModel.status, 200, JSON.stringify(videoModel.body));
+        const video = await submit(account.session, videoModel.body.data.model.id, unique("openrouter-video"), { capability: "video" });
+        assert.equal(video.body.error?.code, "MODEL_UNAVAILABLE");
+    });
+
     await t.test("生成硬上限和供应商失败路径均留下稳定结果", async () => {
         const account = await createUser(admin, "hard-limits");
         const cases = [

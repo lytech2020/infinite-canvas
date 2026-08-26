@@ -1,4 +1,5 @@
 import type { Model, Provider } from "@prisma/client";
+import { fileTypeFromBuffer } from "file-type";
 import sharp from "sharp";
 
 import { decryptSecret } from "../../../lib/crypto.js";
@@ -12,6 +13,9 @@ const AZURE_DEFAULT_API_VERSION = "preview";
  */
 export function providerUrl(provider: Provider, path: string) {
     const base = provider.baseUrl.trim().replace(/\/+$/, "");
+    if (provider.apiFormat === "openrouter") {
+        return `${base.replace(/\/api(?:\/v1)?$/i, "")}/api/v1${path}`;
+    }
     if (provider.apiFormat !== "azure_openai") {
         const lower = base.toLowerCase();
         return `${lower.endsWith("/v1") || lower.endsWith("/api/v3") ? base : `${base}/v1`}${path}`;
@@ -31,7 +35,7 @@ export function providerHeaders(provider: Provider) {
 }
 
 /** 供应商返回的错误统一在这里取出可读信息，具体内容只写入任务的 errorDetail。 */
-async function readError(response: Response, payload: { error?: { message?: string } }) {
+function readError(response: Response, payload: { error?: { message?: string } }) {
     return payload.error?.message || `供应商返回 HTTP ${response.status}`;
 }
 
@@ -45,33 +49,48 @@ type ImagePayload = {
     error?: { message?: string };
 };
 
+const SAFE_IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
+
+async function verifiedImage(data: Buffer) {
+    const detected = await fileTypeFromBuffer(data);
+    if (!detected || !SAFE_IMAGE_MIME_TYPES.has(detected.mime)) throw new Error("供应商返回了不支持的图片格式");
+    return { data, mimeType: detected.mime };
+}
+
 /** 把接口返回的 base64 或临时 URL 统一取成二进制，后续由后台写入对象存储。 */
 async function readImages(payload: ImagePayload, signal: AbortSignal) {
     const items = payload.data || [];
     if (!items.length) throw new Error("供应商没有返回图片");
     return Promise.all(
         items.map(async (item) => {
-            if (item.b64_json) return { data: Buffer.from(item.b64_json, "base64"), mimeType: "image/png" };
+            if (item.b64_json) return verifiedImage(Buffer.from(item.b64_json, "base64"));
             if (!item.url) throw new Error("供应商返回的图片既没有内容也没有地址");
             const file = await fetch(item.url, { signal });
             if (!file.ok) throw new Error(`下载生成图片失败，HTTP ${file.status}`);
-            return { data: Buffer.from(await file.arrayBuffer()), mimeType: file.headers.get("content-type") || "image/png" };
+            return verifiedImage(Buffer.from(await file.arrayBuffer()));
         }),
     );
 }
 
-/** 文生图。 */
-export async function generateImage(provider: Provider, model: Model, prompt: string, params: Record<string, unknown>, signal: AbortSignal): Promise<ImageGenerationResult> {
+function imageBody(model: Model, prompt: string, params: Record<string, unknown>) {
     const body: Record<string, unknown> = { model: model.remoteName, prompt };
     if (typeof params.size === "string") body.size = params.size;
     if (typeof params.quality === "string") body.quality = params.quality;
     if (typeof params.background === "string") body.background = params.background;
     if (typeof params.count === "number") body.n = params.count;
+    return body;
+}
 
-    const response = await fetch(providerUrl(provider, "/images/generations"), { method: "POST", headers: providerHeaders(provider), body: JSON.stringify(body), signal });
+async function requestJsonImages(provider: Provider, path: string, body: Record<string, unknown>, signal: AbortSignal): Promise<ImageGenerationResult> {
+    const response = await fetch(providerUrl(provider, path), { method: "POST", headers: providerHeaders(provider), body: JSON.stringify(body), signal });
     const payload = (await response.json().catch(() => ({}))) as ImagePayload;
-    if (!response.ok || payload.error) throw new Error(await readError(response, payload));
+    if (!response.ok || payload.error) throw new Error(readError(response, payload));
     return { images: await readImages(payload, signal), providerRequestId: payload.id, usage: payload.usage };
+}
+
+/** 文生图。 */
+export async function generateImage(provider: Provider, model: Model, prompt: string, params: Record<string, unknown>, signal: AbortSignal): Promise<ImageGenerationResult> {
+    return requestJsonImages(provider, provider.apiFormat === "openrouter" ? "/images" : "/images/generations", imageBody(model, prompt, params), signal);
 }
 
 /** 图生图 / 图片编辑；参考图以 multipart 提交，因此不能复用 JSON 请求头。 */
@@ -84,6 +103,22 @@ export async function editImage(
     signal: AbortSignal,
     mask?: { data: Buffer; mimeType: string; filename: string },
 ): Promise<ImageGenerationResult> {
+    if (provider.apiFormat === "openrouter") {
+        if (mask) throw new Error("OpenRouter 图片接口暂不支持遮罩编辑");
+        return requestJsonImages(
+            provider,
+            "/images",
+            {
+                ...imageBody(model, prompt, params),
+                input_references: references.map((reference) => ({
+                    type: "image_url",
+                    image_url: { url: `data:${reference.mimeType};base64,${reference.data.toString("base64")}` },
+                })),
+            },
+            signal,
+        );
+    }
+
     const form = new FormData();
     form.append("model", model.remoteName);
     form.append("prompt", prompt);
@@ -98,7 +133,7 @@ export async function editImage(
     const { "Content-Type": _ignored, ...headers } = providerHeaders(provider);
     const response = await fetch(providerUrl(provider, "/images/edits"), { method: "POST", headers, body: form, signal });
     const payload = (await response.json().catch(() => ({}))) as ImagePayload;
-    if (!response.ok || payload.error) throw new Error(await readError(response, payload));
+    if (!response.ok || payload.error) throw new Error(readError(response, payload));
     return { images: await readImages(payload, signal), providerRequestId: payload.id, usage: payload.usage };
 }
 

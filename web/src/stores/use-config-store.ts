@@ -118,7 +118,7 @@ export const defaultConfig: AiConfig = {
     size: "1:1",
     background: "",
     count: "1",
-    canvasImageCount: "3",
+    canvasImageCount: "1",
 };
 
 export const defaultWebdavSyncConfig: WebdavSyncConfig = {
@@ -258,7 +258,7 @@ function normalizeSavedConfig(saved?: Partial<AiConfig> | null) {
         vquality: config.vquality || "720",
         videoGenerateAudio: config.videoGenerateAudio || "true",
         videoWatermark: config.videoWatermark || "false",
-        canvasImageCount: config.canvasImageCount || "3",
+        canvasImageCount: config.canvasImageCount || defaultConfig.canvasImageCount,
     };
 }
 
