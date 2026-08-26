@@ -130,6 +130,22 @@ async function handleRequest(req, res) {
         });
     }
 
+    if (url.pathname.endsWith("/images") && req.method === "POST") {
+        const body = JSON.parse((await readBody(req)).toString("utf8") || "{}");
+        const references = body.input_references;
+        if (
+            body.prompt === "保留参考图主体" &&
+            (!Array.isArray(references) || !references.every((reference) => reference?.type === "image_url" && reference.image_url?.url?.startsWith("data:image/")))
+        ) {
+            return send(res, 400, { error: { message: "invalid input_references" } });
+        }
+        if (body.prompt === "[unsafe-html]") return send(res, 200, { data: [{ b64_json: Buffer.from("<html>unsafe</html>").toString("base64"), media_type: "text/html" }] });
+        return send(res, 200, {
+            id: `image-${randomUUID()}`,
+            data: Array.from({ length: Number(body.n) || 1 }, () => ({ b64_json: PNG.toString("base64"), media_type: "image/png" })),
+        });
+    }
+
     if (url.pathname.endsWith("/videos") && req.method === "POST") {
         const raw = (await readBody(req)).toString("latin1");
         await waitForRelease(raw);

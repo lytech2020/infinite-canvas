@@ -36,6 +36,7 @@ const MAX_MESSAGES = 100;
 const MAX_MESSAGE_LENGTH = 20_000;
 const MAX_MESSAGES_TOTAL_LENGTH = 100_000;
 const MAX_PARAMS_BYTES = 200_000;
+const OPENROUTER_MAX_REFERENCE_BYTES = 20 * 1024 * 1024;
 
 /** 只校验管理员为该模型显式配置的参数，任务归属、文件角色等内部字段不受影响。 */
 function assertModelParams(model: Model, params: Record<string, unknown>) {
@@ -120,6 +121,7 @@ export async function createJob(user: User, input: CreateJobInput) {
     if (!model || !model.enabled || !model.provider.enabled) throw new ApiError("MODEL_UNAVAILABLE", "模型不可用");
     if (model.provider.apiFormat === "gemini") throw new ApiError("MODEL_UNAVAILABLE", "Gemini 原生协议尚未接入后台网关");
     if (model.capability !== input.capability) throw new ApiError("VALIDATION_FAILED", "模型能力与请求不一致");
+    if (model.provider.apiFormat === "openrouter" && input.capability === "video") throw new ApiError("MODEL_UNAVAILABLE", "OpenRouter 视频协议尚未接入后台网关");
     assertModelParams(model, input.params ?? {});
     if (input.projectId) {
         const project = await prisma.project.findUnique({ where: { id: input.projectId } });
@@ -128,6 +130,13 @@ export async function createJob(user: User, input: CreateJobInput) {
 
     const files = await resolveJobFiles(user.id, input.fileIds || []);
     assertModelFileLimits(model, files);
+    const maskFileId = typeof input.params?.maskFileId === "string" ? input.params.maskFileId : "";
+    const referenceImages = files.filter((file) => file.id !== maskFileId && fileKind(file.mimeType) === "image");
+    if (maskFileId && !referenceImages.length) throw new ApiError("VALIDATION_FAILED", "遮罩编辑需要至少一张参考图");
+    if (model.provider.apiFormat === "openrouter" && input.capability === "image") {
+        if (maskFileId) throw new ApiError("VALIDATION_FAILED", "OpenRouter 图片接口暂不支持遮罩编辑");
+        if (referenceImages.reduce((total, file) => total + file.size, 0) > OPENROUTER_MAX_REFERENCE_BYTES) throw new ApiError("FILE_TOO_LARGE", "OpenRouter 参考图总大小超过限制", { maxSizeMb: OPENROUTER_MAX_REFERENCE_BYTES / 1024 / 1024 });
+    }
     const onlyImages = files.every((file) => fileKind(file.mimeType) === "image");
     if (files.length && input.capability !== "video" && !((input.capability === "image" || input.capability === "text") && onlyImages)) {
         throw new ApiError("VALIDATION_FAILED", "当前能力暂不支持参考文件");
