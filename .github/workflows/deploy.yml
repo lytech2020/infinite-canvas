@@ -28,7 +28,7 @@ jobs:
       DEPLOY_ROOT: /var/www/${{ github.event.repository.name }}
       SSH_HOST: ${{ secrets.SSH_HOST }}
       SSH_USER: ${{ secrets.SSH_USER }}
-      RELEASE_NAME: ${{ github.sha }}-${{ github.run_attempt }}
+      RELEASE_NAME: ${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
       REMOTE_COMPOSE_TEMPLATE: /tmp/infinite-canvas-compose-${{ github.run_id }}-${{ github.run_attempt }}.yml
 
     steps:
@@ -262,7 +262,8 @@ jobs:
           done
 
           "${compose[@]}" exec --no-tty minio sh -ec \
-            'mc alias set local http://127.0.0.1:9000 "${MINIO_ROOT_USER}" "${MINIO_ROOT_PASSWORD}" && mc mb --ignore-existing "local/${S3_BUCKET}"'
+            'mc alias set local http://127.0.0.1:9000 "${MINIO_ROOT_USER}" "${MINIO_ROOT_PASSWORD}" && mc mb --ignore-existing "local/${S3_BUCKET}"' \
+            < /dev/null
 
           if [[ "${target}" == "all" || "${target}" == "backend" ]]; then
             "${compose[@]}" up --detach --no-deps --force-recreate server
