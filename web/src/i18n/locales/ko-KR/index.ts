@@ -450,7 +450,13 @@ export default {
             "loadFailedRetry": "로드 실패, 다시 시도",
             "noMatchingPrompts": "일치하는 hint 없음",
             "sourceNoPrompts": "소스는 힌트가 없습니다.",
-            "viewDetails": "더 보기"
+            "viewDetails": "더 보기",
+            "keywords": "키워드",
+            "searchKeywords": "키워드 검색",
+            "noKeywords": "키워드가 없습니다",
+            "noMatchingKeywords": "일치하는 키워드가 없습니다",
+            "loadMoreKeywords": "더 불러오기 (남은 {{count}}개)",
+            "copyKeyword": "키워드 복사"
         },
         "controls": {
             "openMiniMap": "작은지도 열기",
