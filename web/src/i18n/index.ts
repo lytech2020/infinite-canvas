@@ -2,6 +2,8 @@ import i18n from "i18next";
 import { initReactI18next } from "react-i18next";
 
 import { appLocales, defaultLocale } from "@/i18n/locale";
+import enUS from "@/i18n/locales/en-US";
+import koKR from "@/i18n/locales/ko-KR";
 import jaCommon from "@/i18n/locales/ja-JP/common";
 import jaAssets from "@/i18n/locales/ja-JP/assets";
 import jaAuth from "@/i18n/locales/ja-JP/auth";
@@ -31,6 +33,7 @@ import zhAgent from "@/i18n/locales/zh-CN/agent";
 import zhErrors from "@/i18n/locales/zh-CN/errors";
 import zhPrivacy from "@/i18n/locales/zh-CN/privacy";
 import { useLocaleStore } from "@/stores/use-locale-store";
+import { enAdmin, jaAdmin, koAdmin, zhAdmin } from "@/i18n/locales/admin";
 
 void i18n.use(initReactI18next).init({
     lng: useLocaleStore.getState().locale,
@@ -38,8 +41,10 @@ void i18n.use(initReactI18next).init({
     supportedLngs: appLocales,
     defaultNS: "common",
     resources: {
-        "zh-CN": { common: zhCommon, navigation: zhNavigation, config: zhConfig, home: zhHome, canvas: zhCanvas, prompts: zhPrompts, assets: zhAssets, image: zhImage, video: zhVideo, settings: zhSettings, agent: zhAgent, errors: zhErrors, auth: zhAuth, privacy: zhPrivacy },
-        "ja-JP": { common: jaCommon, navigation: jaNavigation, config: jaConfig, home: jaHome, canvas: jaCanvas, prompts: jaPrompts, assets: jaAssets, image: jaImage, video: jaVideo, settings: jaSettings, agent: jaAgent, errors: jaErrors, auth: jaAuth, privacy: jaPrivacy },
+        "zh-CN": { admin: zhAdmin, common: zhCommon, navigation: zhNavigation, config: zhConfig, home: zhHome, canvas: zhCanvas, prompts: zhPrompts, assets: zhAssets, image: zhImage, video: zhVideo, settings: zhSettings, agent: zhAgent, errors: zhErrors, auth: zhAuth, privacy: zhPrivacy },
+        "ja-JP": { admin: jaAdmin, common: jaCommon, navigation: jaNavigation, config: jaConfig, home: jaHome, canvas: jaCanvas, prompts: jaPrompts, assets: jaAssets, image: jaImage, video: jaVideo, settings: jaSettings, agent: jaAgent, errors: jaErrors, auth: jaAuth, privacy: jaPrivacy },
+        "en-US": { ...enUS, admin: enAdmin },
+        "ko-KR": { ...koKR, admin: koAdmin },
     },
     interpolation: { escapeValue: false },
     react: { useSuspense: false },

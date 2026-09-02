@@ -22,6 +22,8 @@ export function CanvasProjectCard({ project }: { project: CanvasProject }) {
     const setDeleteIds = useCanvasUiStore((state) => state.setDeleteProjectIds);
     const editing = editingId === project.id;
     const selected = selectedIds.includes(project.id);
+    const defaultTitleNumber = project.title.match(/^(?:Measure NAVI Canvas|无限画布|キャンバス|무한 캔버스|Infinite canvas)\s*(\d+)$/i)?.[1];
+    const displayTitle = defaultTitleNumber ? t("defaultProjectName", { number: defaultTitleNumber }) : project.title;
     const open = () => navigate(`/canvas/${project.id}${searchParams.toString() ? `?${searchParams.toString()}` : ""}`);
     const saveTitle = () => {
         renameProject(project.id, editingTitle);
@@ -37,7 +39,7 @@ export function CanvasProjectCard({ project }: { project: CanvasProject }) {
                     onClick={(event) => event.stopPropagation()}
                     onChange={(event) => toggleSelected(project.id, event.target.checked)}
                     className="mt-1 size-4 accent-stone-950 dark:accent-stone-100"
-                    aria-label={t("project.select", { title: project.title })}
+                    aria-label={t("project.select", { title: displayTitle })}
                 />
                 {editing ? (
                     <Input className="min-w-0" value={editingTitle} onClick={(event) => event.stopPropagation()} onChange={(event) => setEditingTitle(event.target.value)} onKeyDown={(event) => event.key === "Enter" && saveTitle()} autoFocus />
@@ -50,7 +52,7 @@ export function CanvasProjectCard({ project }: { project: CanvasProject }) {
                             open();
                         }}
                     >
-                        <h2 className="truncate text-xl font-semibold">{project.title}</h2>
+                        <h2 className="truncate text-xl font-semibold">{displayTitle}</h2>
                         <p className="mt-3 text-sm leading-6 text-stone-600 dark:text-stone-400">
                             {t("project.summary", { nodes: project.nodes.length, connections: project.connections.length })}
                         </p>
