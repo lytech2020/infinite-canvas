@@ -128,6 +128,12 @@ export default {
         noMatchingPrompts: "无匹配提示词",
         sourceNoPrompts: "该来源暂无提示词",
         viewDetails: "查看详情",
+        keywords: "关键词",
+        searchKeywords: "搜索关键词",
+        noKeywords: "暂无关键词",
+        noMatchingKeywords: "无匹配关键词",
+        loadMoreKeywords: "加载更多（剩余 {{count}}）",
+        copyKeyword: "复制关键词",
     },
     controls: {
         openMiniMap: "打开小地图",
