@@ -322,6 +322,15 @@ export default {
         }
     },
     "canvas": {
+        "references": {
+            "title": "References",
+            "select": "Pick a reference node on the canvas",
+            "disconnect": "Remove reference",
+            "empty": "No content",
+            "selecting": "Adding a reference",
+            "choose": "Select",
+            "selectingHint": "Pick a reference on the canvas · ESC to return"
+        },
         "defaultProjectName": "Measure NAVI Canvas {{number}}",
         "importSuccess": "Imported{{count}}canvas",
         "importFailed": "Import failed, select a valid canvas compression package",
@@ -763,6 +772,7 @@ export default {
             "exporting": "Exporting current canvas...",
             "exported": "Exported current canvas",
             "exportFailed": "Export failed, please try again",
+            "uploadFailed": "Failed to upload the file, please try again",
             "clipboardText": "Clipboard Text",
             "pastedImage": "Add pictures from clipboard",
             "pastedText": "Text added from clipboard",

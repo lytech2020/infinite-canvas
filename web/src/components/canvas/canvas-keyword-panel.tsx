@@ -128,7 +128,6 @@ function KeywordRow({ item, theme, onView, onCopy, onInsert }: { item: Architect
             <button type="button" onClick={onView} className="min-w-0 flex-1 text-left">
                 <div className="truncate text-sm font-medium leading-snug">{item.title}</div>
                 <div className="mt-0.5 truncate text-xs leading-snug opacity-50">{item.prompt}</div>
-                <div className="mt-0.5 truncate text-[10px] leading-snug opacity-30">{item.templateVersion}</div>
             </button>
             <div className="flex shrink-0 flex-col items-center gap-0.5">
                 <button type="button" onClick={onCopy} className="grid size-6 place-items-center rounded-md opacity-60 transition hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/10" aria-label={t("sidePanel.copyKeyword")} title={t("sidePanel.copyKeyword")}>
@@ -156,11 +155,7 @@ function KeywordDetailDialog({ item, onClose, onCopy, onInsert }: { item: Archit
             {item ? (
                 <div className="flex max-h-[calc(70vh-24px)] flex-col">
                     {item.coverUrl ? <img src={item.coverUrl} alt={item.title} className="h-48 w-full shrink-0 rounded-lg object-cover" /> : null}
-                    <div className="mt-3 flex shrink-0 items-center gap-2 text-xs opacity-45">
-                        <span>{item.category}</span>
-                        <span>·</span>
-                        <span>{item.templateVersion}</span>
-                    </div>
+                    <div className="mt-3 shrink-0 text-xs opacity-45">{item.category}</div>
                     <p className="mt-3 min-h-0 flex-1 overflow-y-auto whitespace-pre-wrap text-sm leading-7">{item.prompt}</p>
                     <div className="mt-4 flex shrink-0 gap-2">
                         <Button icon={<Copy className="size-4" />} onClick={() => onCopy(item)}>

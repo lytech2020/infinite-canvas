@@ -322,6 +322,15 @@ export default {
         }
     },
     "canvas": {
+        "references": {
+            "title": "참조 콘텐츠",
+            "select": "캔버스에서 참조 노드 선택",
+            "disconnect": "참조 연결 해제",
+            "empty": "콘텐츠 없음",
+            "selecting": "참조 추가 중",
+            "choose": "선택",
+            "selectingHint": "캔버스에서 참조 선택 · ESC 로 입력창 복귀"
+        },
         "defaultProjectName": "Measure NAVI Canvas {{number}}",
         "importSuccess": "수입{{count}}캔버스",
         "importFailed": "Import failed, 유효한 캔버스 압축 패키지 선택",
@@ -763,6 +772,7 @@ export default {
             "exporting": "수출 현재 캔버스 ...",
             "exported": "수출된 현재 화포",
             "exportFailed": "수출 실패, 다시 시도",
+            "uploadFailed": "파일 업로드에 실패했습니다. 다시 시도해 주세요",
             "clipboardText": "클립보드 텍스트",
             "pastedImage": "클립보드에서 사진을 추가",
             "pastedText": "clipboard에서 추가된 텍스트",

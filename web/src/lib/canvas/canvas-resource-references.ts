@@ -21,18 +21,18 @@ export function buildNodeMentionReferences(node: CanvasNodeData, nodes: CanvasNo
 }
 
 export function getMentionResourceNodes(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
-    const configInputs = getConnectedConfigResourceNodes(nodeId, nodes, connections);
+    const configInputs = expandGroupResourceNodes(getConnectedConfigResourceNodes(nodeId, nodes, connections), nodes);
     if (configInputs.length) return configInputs;
-    const ownInputs = getContextResourceNodes(nodeId, nodes, connections);
+    const ownInputs = expandGroupResourceNodes(getContextResourceNodes(nodeId, nodes, connections), nodes);
     if (ownInputs.length) return ownInputs;
     const node = nodes.find((item) => item.id === nodeId);
     return node && isResourceNode(node) ? [node] : [];
 }
 
 export function getGenerationResourceNodes(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
-    const configInputs = getConnectedConfigResourceNodes(nodeId, nodes, connections);
+    const configInputs = expandGroupResourceNodes(getConnectedConfigResourceNodes(nodeId, nodes, connections), nodes);
     if (configInputs.length) return configInputs;
-    const ownInputs = getContextResourceNodes(nodeId, nodes, connections);
+    const ownInputs = expandGroupResourceNodes(getContextResourceNodes(nodeId, nodes, connections), nodes);
     if (ownInputs.length) return ownInputs;
     return [];
 }
@@ -41,7 +41,7 @@ function getContextResourceNodes(nodeId: string, nodes: CanvasNodeData[], connec
     return connections
         .filter((connection) => connection.toNodeId === nodeId)
         .map((connection) => nodes.find((node) => node.id === connection.fromNodeId))
-        .filter((node): node is CanvasNodeData => Boolean(node && isResourceNode(node)));
+        .filter((node): node is CanvasNodeData => Boolean(node && isCanvasReferenceNode(node, nodes)));
 }
 
 function getConnectedConfigResourceNodes(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
@@ -81,6 +81,24 @@ function labelForKind(kind: CanvasResourceKind, index: number) {
 
 function isResourceNode(node: CanvasNodeData) {
     return Boolean(resourceKind(node));
+}
+
+function hasGroupResources(node: CanvasNodeData, nodes: CanvasNodeData[]) {
+    return node.type === CanvasNodeType.Group && getGroupResourceNodes(node.id, nodes).length > 0;
+}
+
+// 可作为参考输入的节点：资源节点本身，或含资源的分组节点
+export function isCanvasReferenceNode(node: CanvasNodeData, nodes: CanvasNodeData[]) {
+    return isResourceNode(node) || hasGroupResources(node, nodes);
+}
+
+export function getGroupResourceNodes(groupId: string, nodes: CanvasNodeData[]) {
+    return nodes.filter((node) => node.metadata?.groupId === groupId && isResourceNode(node));
+}
+
+function expandGroupResourceNodes(inputNodes: CanvasNodeData[], nodes: CanvasNodeData[]) {
+    const resources = inputNodes.flatMap((node) => (node.type === CanvasNodeType.Group ? getGroupResourceNodes(node.id, nodes) : [node]));
+    return [...new Map(resources.map((node) => [node.id, node])).values()];
 }
 
 function resourceText(node: CanvasNodeData): string | undefined {
