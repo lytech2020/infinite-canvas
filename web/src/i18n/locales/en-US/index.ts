@@ -450,7 +450,13 @@ export default {
             "loadFailedRetry": "Loading failed, click to try again",
             "noMatchingPrompts": "No matching hint",
             "sourceNoPrompts": "The source has no hint.",
-            "viewDetails": "View Details"
+            "viewDetails": "View Details",
+            "keywords": "Keywords",
+            "searchKeywords": "Search keywords",
+            "noKeywords": "No keywords yet",
+            "noMatchingKeywords": "No matching keyword",
+            "loadMoreKeywords": "Load more ({{count}} left)",
+            "copyKeyword": "Copy keyword"
         },
         "controls": {
             "openMiniMap": "Open small map",

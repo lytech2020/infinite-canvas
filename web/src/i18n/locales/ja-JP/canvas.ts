@@ -128,6 +128,12 @@ export default {
         noMatchingPrompts: "一致するプロンプトはありません",
         sourceNoPrompts: "このソースにプロンプトはありません",
         viewDetails: "詳細を表示",
+        keywords: "キーワード",
+        searchKeywords: "キーワードを検索",
+        noKeywords: "キーワードはありません",
+        noMatchingKeywords: "一致するキーワードはありません",
+        loadMoreKeywords: "さらに読み込む（残り {{count}} 件）",
+        copyKeyword: "キーワードをコピー",
     },
     controls: {
         openMiniMap: "ミニマップを開く",
