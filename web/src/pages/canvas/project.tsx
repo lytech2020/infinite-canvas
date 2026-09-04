@@ -803,11 +803,11 @@ function InfiniteCanvasPage() {
         [referenceConnectedNodeIds, referencePickerNodeId],
     );
 
-    // ESC 退出参考图选取模式
+    // Enter / ESC 结束参考图选取模式
     useEffect(() => {
         if (!referencePickerNodeId) return;
         const exit = (event: KeyboardEvent) => {
-            if (event.key !== "Escape") return;
+            if (event.key !== "Escape" && event.key !== "Enter") return;
             event.preventDefault();
             event.stopImmediatePropagation();
             exitNodeReferenceSelection();

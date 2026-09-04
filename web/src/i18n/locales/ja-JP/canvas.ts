@@ -156,7 +156,7 @@ export default {
         selectNode: "ノードを選択",
     },
     contextMenu: { duplicate: "複製", delete: "削除" },
-    references: { title: "参照コンテンツ", select: "キャンバスから参照ノードを選択", disconnect: "参照の接続を解除", empty: "コンテンツなし", selecting: "参照を追加中", choose: "選択", selectingHint: "キャンバスから参照を選択 · ESC で入力欄に戻る" },
+    references: { title: "参照コンテンツ", select: "キャンバス上の既存コンテンツを引用", add: "キャンバスから引用", emptyHint: "キャンバスの画像やテキストを参照として接続", countHint: "{{count}} 件を参照中", disconnect: "参照の接続を解除", empty: "コンテンツなし", selecting: "キャンバスから自由に選択 · Enter で完了", choose: "クリックして引用", selectingHint: "キャンバス上の画像やテキストをクリックして参照に · Enter で完了" },
     plugins: {
         installedPlugin: "プラグイン {{name}} をインストールしました",
         installed: "{{name}} をインストールしました",
@@ -294,7 +294,7 @@ export default {
     },
     configNode: {
         title: "生成設定", image: "画像", text: "テキスト", video: "動画", audio: "音声", prompt: "プロンプト", referenceImage: "参照画像", referenceVideo: "参照動画", referenceAudio: "参照音声", count: "{{count}} 件", imageCount: "{{count}} 枚", compose: "プロンプトを構成", stop: "停止", start: "生成開始",
-        composerTitle: "プロンプトを構成", composerHelp: "@ で接続済みアセットを参照し、送信前に現在の接続順で番号を振り直します", composerPlaceholder: "プロンプトを入力し、@ で接続済み画像やテキストを参照", preview: "参照画像のプレビュー", inputImage: "画像{{count}}", inputVideo: "動画{{count}}", inputAudio: "音声{{count}}", inputText: "テキスト{{count}}",
+        composerTitle: "プロンプトを構成", composerPlaceholder: "プロンプトを入力し、@ で接続済み画像やテキストを参照", preview: "参照画像のプレビュー", inputImage: "画像{{count}}", inputVideo: "動画{{count}}", inputAudio: "音声{{count}}", inputText: "テキスト{{count}}",
     },
     generation: {
         stop: "生成を停止", generate: "生成", stopShort: "停止", videoPlaceholder: "生成する動画の内容を入力", audioPlaceholder: "生成する音声の内容を入力", imagePlaceholder: "生成する画像の内容を入力", editImagePlaceholder: "この画像をどのように変更するか入力", textPlaceholder: "生成するテキストの内容を入力", editTextPlaceholder: "このテキストをどのように変更するか入力", interrupted: "ページの再読み込みにより生成が中断されました。もう一度生成してください。",

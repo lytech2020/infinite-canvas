@@ -156,7 +156,7 @@ export default {
         selectNode: "选择节点",
     },
     contextMenu: { duplicate: "复制", delete: "删除" },
-    references: { title: "参考内容", select: "从画布选择参考节点", disconnect: "断开参考连接", empty: "暂无内容", selecting: "正在添加参考", choose: "选择", selectingHint: "从画布选择参考 · ESC 返回输入框" },
+    references: { title: "参考内容", select: "引用画布上已有的内容", add: "引用画布内容", emptyHint: "从画布连接图片或文字作为参考", countHint: "已引用 {{count}} 项", disconnect: "断开参考连接", empty: "暂无内容", selecting: "在画布上自由选择参考 · 按 Enter 完成", choose: "点击引用", selectingHint: "在画布上点选图片或文字作为参考 · 按 Enter 完成" },
     plugins: {
         installedPlugin: "已安装插件 {{name}}",
         installed: "已安装 {{name}}",
@@ -294,7 +294,7 @@ export default {
     },
     configNode: {
         title: "生成配置", image: "生图", text: "文本", video: "视频", audio: "音频", prompt: "提示词", referenceImage: "参考图", referenceVideo: "参考视频", referenceAudio: "参考音频", count: "{{count}} 个", imageCount: "{{count}} 张", compose: "组装提示词", stop: "停止", start: "开始生成",
-        composerTitle: "组装提示词", composerHelp: "@ 引用已连接资产，发送前按当前连接重新编号", composerPlaceholder: "输入提示词，按 @ 引用连接的图片或文本", preview: "引用图片预览", inputImage: "图片{{count}}", inputVideo: "视频{{count}}", inputAudio: "音频{{count}}", inputText: "文本{{count}}",
+        composerTitle: "组装提示词", composerPlaceholder: "输入提示词，按 @ 引用连接的图片或文本", preview: "引用图片预览", inputImage: "图片{{count}}", inputVideo: "视频{{count}}", inputAudio: "音频{{count}}", inputText: "文本{{count}}",
     },
     generation: {
         stop: "停止生成", generate: "生成", stopShort: "停止", videoPlaceholder: "描述要生成的视频内容", audioPlaceholder: "描述要生成的音频内容", imagePlaceholder: "描述要生成的图片内容", editImagePlaceholder: "请输入你想要把这张图修改成什么", textPlaceholder: "请输入你想要生成的文本内容", editTextPlaceholder: "请输入你想要将本段文本修改成什么", interrupted: "页面刷新后生成已中断，请重新生成。",

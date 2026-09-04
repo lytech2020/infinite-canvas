@@ -37,9 +37,9 @@ export function CanvasConfigNodePanel({ node, isRunning, inputSummary, onConfigC
 
     return (
         <div className="flex h-full w-full cursor-move flex-col px-3 pb-3 pt-7 text-sm" style={{ color: theme.node.text }} onWheel={(event) => event.stopPropagation()}>
-            <div className="mb-2 flex items-center justify-between gap-3">
+            <div className="mb-2 flex items-center gap-3">
                 <div className="shrink-0 text-sm font-semibold">{t("configNode.title")}</div>
-                <div className="cursor-default" onMouseDown={(event) => event.stopPropagation()}>
+                <div className="min-w-0 cursor-default" onMouseDown={(event) => event.stopPropagation()}>
                     <Segmented
                         size="small"
                         className="canvas-config-mode !rounded-md !p-0.5"

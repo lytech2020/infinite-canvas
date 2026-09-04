@@ -324,12 +324,15 @@ export default {
     "canvas": {
         "references": {
             "title": "References",
-            "select": "Pick a reference node on the canvas",
+            "select": "Reference something already on the canvas",
+            "add": "Reference canvas content",
+            "emptyHint": "Connect an image or text from the canvas as a reference",
+            "countHint": "{{count}} referenced",
             "disconnect": "Remove reference",
             "empty": "No content",
-            "selecting": "Adding a reference",
-            "choose": "Select",
-            "selectingHint": "Pick a reference on the canvas · ESC to return"
+            "selecting": "Pick freely on the canvas · Enter when done",
+            "choose": "Click to reference",
+            "selectingHint": "Click images or text on the canvas to reference · Enter when done"
         },
         "defaultProjectName": "Measure NAVI Canvas {{number}}",
         "importSuccess": "Imported{{count}}canvas",
@@ -664,7 +667,6 @@ export default {
             "stop": "Stop",
             "start": "Start Generating",
             "composerTitle": "Synchronising folder",
-            "composerHelp": "@ Quote connected assets and renumber the current connection before sending",
             "composerPlaceholder": "Enter a hint, press @referenced picture or text",
             "preview": "Reference Picture Preview",
             "inputImage": "Photo{{count}}",

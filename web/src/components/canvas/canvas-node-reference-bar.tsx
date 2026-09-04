@@ -1,4 +1,4 @@
-import { FileText, Image as ImageIcon, Music2, Plus, Puzzle, Video, X } from "lucide-react";
+import { FileText, Image as ImageIcon, Link2, Music2, Puzzle, Video, X } from "lucide-react";
 import { Popover } from "antd";
 import { useTranslation } from "react-i18next";
 
@@ -14,11 +14,15 @@ export function CanvasNodeReferenceBar({ nodeId, nodes, connectedNodes, onDiscon
     const references = connectedNodes.flatMap((sourceNode) => (sourceNode.type === CanvasNodeType.Group ? getGroupResourceNodes(sourceNode.id, nodes) : [sourceNode]).map((node) => ({ node, sourceNodeId: sourceNode.id })));
     return (
         <div className="mb-2">
-            <div className="mb-1.5 text-[11px] font-medium" style={{ color: theme.node.muted }}>{t("references.title")}</div>
+            <div className="mb-1.5 flex items-baseline gap-2">
+                <span className="text-[11px] font-medium" style={{ color: theme.node.muted }}>{t("references.title")}</span>
+                <span className="text-[11px]" style={{ color: theme.node.muted, opacity: 0.75 }}>{references.length ? t("references.countHint", { count: references.length }) : t("references.emptyHint")}</span>
+            </div>
             <div className="thin-scrollbar flex min-h-12 gap-2 overflow-x-auto pb-1">
                 {references.map(({ node, sourceNodeId }) => <ReferenceItem key={`${sourceNodeId}:${node.id}`} node={node} onRemove={() => onDisconnect?.(sourceNodeId, nodeId)} />)}
-                <button type="button" className="grid size-12 shrink-0 place-items-center rounded-xl border bg-transparent transition hover:opacity-70" style={{ borderColor: theme.toolbar.border, color: theme.node.muted }} title={t("references.select")} onClick={() => onStartSelection?.(nodeId)}>
-                    <Plus className="size-4" />
+                <button type="button" className="flex h-12 shrink-0 items-center gap-1.5 rounded-xl border border-dashed bg-transparent px-3 text-xs font-medium transition hover:opacity-70" style={{ borderColor: theme.toolbar.border, color: theme.node.muted }} title={t("references.select")} onClick={() => onStartSelection?.(nodeId)}>
+                    <Link2 className="size-4" />
+                    <span className="whitespace-nowrap">{t("references.add")}</span>
                 </button>
             </div>
         </div>

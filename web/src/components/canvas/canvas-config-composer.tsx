@@ -124,10 +124,7 @@ export function CanvasConfigComposer({ nodeId, nodes, value, inputs, connectedNo
             onWheel={(event) => event.stopPropagation()}
         >
             <div className="mb-2 flex items-center justify-between gap-2">
-                <div className="flex min-w-0 items-baseline gap-2">
-                    <div className="shrink-0 text-xs font-semibold">{t("configNode.composerTitle")}</div>
-                    <div className="truncate text-[11px] opacity-55">{t("configNode.composerHelp")}</div>
-                </div>
+                <div className="min-w-0 truncate text-xs font-semibold">{t("configNode.composerTitle")}</div>
                 <Button size="small" type="text" className="!h-7 !w-7 !min-w-7 !p-0" icon={<X className="size-3.5" />} onClick={onClose} />
             </div>
             <CanvasNodeReferenceBar nodeId={nodeId} nodes={nodes} connectedNodes={connectedNodes} onDisconnect={onDisconnectReference} onStartSelection={onStartReferenceSelection} />

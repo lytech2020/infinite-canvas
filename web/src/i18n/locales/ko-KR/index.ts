@@ -324,12 +324,15 @@ export default {
     "canvas": {
         "references": {
             "title": "참조 콘텐츠",
-            "select": "캔버스에서 참조 노드 선택",
+            "select": "캔버스에 있는 콘텐츠 참조",
+            "add": "캔버스 콘텐츠 참조",
+            "emptyHint": "캔버스의 이미지나 텍스트를 참조로 연결하세요",
+            "countHint": "{{count}}개 참조 중",
             "disconnect": "참조 연결 해제",
             "empty": "콘텐츠 없음",
-            "selecting": "참조 추가 중",
-            "choose": "선택",
-            "selectingHint": "캔버스에서 참조 선택 · ESC 로 입력창 복귀"
+            "selecting": "캔버스에서 자유롭게 선택 · Enter 로 완료",
+            "choose": "클릭해서 참조",
+            "selectingHint": "캔버스의 이미지나 텍스트를 클릭해 참조 · Enter 로 완료"
         },
         "defaultProjectName": "Measure NAVI Canvas {{number}}",
         "importSuccess": "수입{{count}}캔버스",
@@ -664,7 +667,6 @@ export default {
             "stop": "기타",
             "start": "생성하기",
             "composerTitle": "동기화 폴더",
-            "composerHelp": "@ 견적 연결 자산 및 재 번호 보내기 전에 현재 연결",
             "composerPlaceholder": "힌트를 입력하고 @referenced 그림 또는 텍스트를 누릅니다.",
             "preview": "Reference Picture 미리보기",
             "inputImage": "사진{{count}}",
